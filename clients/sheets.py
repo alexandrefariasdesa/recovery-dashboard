@@ -47,8 +47,15 @@ def get_recuperacoes() -> pd.DataFrame:
     if df.empty:
         return df
     df["evento_em"] = pd.to_datetime(df.get("evento_em"), errors="coerce")
-    # Payt envia valor em centavos (3700 = R$37,00)
-    df["valor"] = pd.to_numeric(df.get("valor", 0), errors="coerce").fillna(0) / 100
+    df["valor"] = pd.to_numeric(df.get("valor", 0), errors="coerce").fillna(0)
+    if "converteu" not in df.columns:
+        df["converteu"] = False
+    else:
+        df["converteu"] = df["converteu"].astype(str).str.lower().isin(["true", "1", "sim", "yes"])
+    if "valor_recuperado" not in df.columns:
+        df["valor_recuperado"] = 0.0
+    else:
+        df["valor_recuperado"] = pd.to_numeric(df["valor_recuperado"], errors="coerce").fillna(0)
     return df
 
 
@@ -58,5 +65,9 @@ def get_compras() -> pd.DataFrame:
     if df.empty:
         return df
     df["compra_em"] = pd.to_datetime(df.get("compra_em"), errors="coerce")
-    df["valor"] = pd.to_numeric(df.get("valor", 0), errors="coerce").fillna(0) / 100
+    df["valor"] = pd.to_numeric(df.get("valor", 0), errors="coerce").fillna(0)
+    if "entrou_no_grupo" not in df.columns:
+        df["entrou_no_grupo"] = False
+    else:
+        df["entrou_no_grupo"] = df["entrou_no_grupo"].astype(str).str.lower().isin(["true", "1", "sim", "yes"])
     return df
