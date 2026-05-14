@@ -26,14 +26,16 @@ def render_recovery_tab(df: pd.DataFrame) -> None:
     total = len(df)
     total_convertidos = int(df["converteu"].sum())
     taxa = (total_convertidos / total * 100) if total > 0 else 0.0
-    receita = df.loc[df["converteu"], "valor_recuperado"].sum()
+    receita_recuperavel = df.loc[~df["converteu"], "valor"].sum()
+    receita_recuperada = df.loc[df["converteu"], "valor_recuperado"].sum()
 
     # ── Métricas principais ──────────────────────────────────────────────────
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Total de Eventos", total)
     c2.metric("Converteram em Compra", total_convertidos)
     c3.metric("Taxa de Conversão Geral", f"{taxa:.1f}%")
-    c4.metric("Receita Gerada", f"R$ {receita:,.2f}")
+    c4.metric("Receita Recuperável", f"R$ {receita_recuperavel:,.2f}")
+    c5.metric("Receita Recuperada", f"R$ {receita_recuperada:,.2f}")
 
     st.divider()
 
