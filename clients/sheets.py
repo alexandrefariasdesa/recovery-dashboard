@@ -176,8 +176,8 @@ def get_compras() -> pd.DataFrame:
 
     if "valor" in df.columns:
         df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0)
-        vals = df["valor"][df["valor"] > 0]
-        if not vals.empty and vals.min() > 100 and (vals == vals.astype(int)).all():
-            df["valor"] = df["valor"] / 100
+        # Detecção por linha: valores >= 1000 sem casas decimais são centavos (ex: 3700 → 37)
+        mask = (df["valor"] >= 1000) & (df["valor"] % 1 == 0)
+        df.loc[mask, "valor"] = df.loc[mask, "valor"] / 100
 
     return df
