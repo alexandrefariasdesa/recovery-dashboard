@@ -175,7 +175,7 @@ def get_compras() -> pd.DataFrame:
     df["compra_em"] = _strip_tz(df["compra_em"])
 
     if "valor" in df.columns:
-        df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0)
+        df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0).astype(float)
         # Detecção por linha: valores >= 1000 sem casas decimais são centavos (ex: 3700 → 37)
         mask = (df["valor"] >= 1000) & (df["valor"] % 1 == 0)
         df.loc[mask, "valor"] = df.loc[mask, "valor"] / 100
