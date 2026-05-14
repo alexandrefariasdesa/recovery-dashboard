@@ -50,13 +50,15 @@ def render_recovery_tab(df: pd.DataFrame) -> None:
         total_tipo = len(subset)
         conv = int(subset["converteu"].sum())
         rate = (conv / total_tipo * 100) if total_tipo > 0 else 0.0
-        rev = subset.loc[subset["converteu"], "valor_recuperado"].sum()
+        recuperavel = subset.loc[~subset["converteu"], "valor"].sum()
+        recuperada = subset.loc[subset["converteu"], "valor_recuperado"].sum()
         rows.append({
             "Tipo": _LABELS.get(tipo, tipo),
             "Total": total_tipo,
             "Convertidos": conv,
             "Taxa (%)": round(rate, 1),
-            "Receita (R$)": round(rev, 2),
+            "Receita Recuperável (R$)": round(recuperavel, 2),
+            "Receita Recuperada (R$)": round(recuperada, 2),
         })
 
     if rows:
@@ -83,7 +85,8 @@ def render_recovery_tab(df: pd.DataFrame) -> None:
             st.dataframe(
                 bdf.style.format({
                     "Taxa (%)": "{:.1f}%",
-                    "Receita (R$)": "R$ {:,.2f}",
+                    "Receita Recuperável (R$)": "R$ {:,.2f}",
+                    "Receita Recuperada (R$)": "R$ {:,.2f}",
                 }),
                 use_container_width=True,
                 hide_index=True,
