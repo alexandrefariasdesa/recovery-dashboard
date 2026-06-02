@@ -3,8 +3,10 @@ from datetime import datetime, timedelta, date
 
 from processors.recovery import build_recovery_dataframe
 from processors.upsell import build_upsell_dataframe
+from processors.group_followup import build_group_followup_dataframe
 from components.recovery_tab import render_recovery_tab
 from components.upsell_tab import render_upsell_tab
+from components.group_followup_tab import render_group_followup_tab
 
 st.set_page_config(
     page_title="Dashboard de Recuperação & Upsell",
@@ -87,9 +89,10 @@ st.caption(f"Período: **{start_date.strftime('%d/%m/%Y')}** até **{end_date.st
 st.divider()
 
 # ── Abas ─────────────────────────────────────────────────────────────────────
-tab1, tab2 = st.tabs([
+tab1, tab2, tab3 = st.tabs([
     "🔁 Recuperações  (Boleto / PIX / Carrinho)",
     "⬆️ Conversão Upsell",
+    "👥 Grupo — 2ª chamada",
 ])
 
 with tab1:
@@ -109,5 +112,23 @@ with tab2:
             render_upsell_tab(upsell_df)
         except Exception as exc:
             st.error(f"Erro ao carregar upsell: {exc}")
+            with st.expander("Detalhes do erro"):
+                st.exception(exc)
+
+with tab3:
+    # Corte padrão: início da campanha do grupo (independe do período acima)
+    cutoff = st.date_input(
+        "Considerar compras a partir de",
+        value=date(2026, 5, 10),
+        max_value=hoje,
+        format="DD/MM/YYYY",
+        key="grupo_cutoff",
+    )
+    with st.spinner("Carregando pendentes de 2ª chamada..."):
+        try:
+            grupo_df = build_group_followup_dataframe(hoje, cutoff)
+            render_group_followup_tab(grupo_df, cutoff)
+        except Exception as exc:
+            st.error(f"Erro ao carregar segmento do grupo: {exc}")
             with st.expander("Detalhes do erro"):
                 st.exception(exc)

@@ -3,3 +3,6 @@ service_account.json
 __pycache__/
 *.pyc
 .streamlit/secrets.toml
+
+# Apps Script com IDs de planilha (nao versionar)
+apps_script/
