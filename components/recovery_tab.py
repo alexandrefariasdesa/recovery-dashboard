@@ -95,6 +95,114 @@ def render_recovery_tab(df: pd.DataFrame) -> None:
 
     st.divider()
 
+    # ── Recuperação dia a dia ────────────────────────────────────────────────
+    st.subheader("Recuperação Dia a Dia")
+
+    # Cores fixas por tipo (consistentes entre gráfico e legenda)
+    _TYPE_COLORS = {
+        "pix_gerado": "#00CC96",
+        "pix_expirado": "#636EFA",
+        "boleto_gerado": "#FFA15A",
+        "boleto_expirado": "#EF553B",
+        "carrinho_abandonado": "#AB63FA",
+    }
+
+    daily = df.copy()
+    daily["dia"] = daily["evento_em"].dt.date
+
+    grp = daily.groupby(["dia", "tipo"]).agg(
+        eventos=("converteu", "size"),
+        convertidos=("converteu", "sum"),
+        recuperavel=("valor", "sum"),
+        recuperada=("valor_recuperado", "sum"),
+    ).reset_index()
+    # Receita recuperável = valor dos que NÃO converteram
+    nao_conv = daily[~daily["converteu"]].groupby(["dia", "tipo"])["valor"].sum()
+    grp = grp.set_index(["dia", "tipo"])
+    grp["recuperavel"] = nao_conv.reindex(grp.index).fillna(0.0)
+    grp = grp.reset_index()
+    grp["taxa"] = (grp["convertidos"] / grp["eventos"] * 100).round(1)
+    grp = grp.sort_values("dia")
+
+    # ── Linha: taxa de conversão por tipo, dia a dia ─────────────────────────
+    st.markdown("**Taxa de Conversão (%) por tipo**")
+    fig_taxa = go.Figure()
+    for tipo in _TYPE_ORDER:
+        sub = grp[grp["tipo"] == tipo]
+        if sub.empty:
+            continue
+        fig_taxa.add_trace(go.Scatter(
+            x=sub["dia"], y=sub["taxa"],
+            mode="lines+markers",
+            name=_LABELS.get(tipo, tipo),
+            line=dict(color=_TYPE_COLORS.get(tipo), width=3),
+            marker=dict(size=7),
+            hovertemplate=f"{_LABELS.get(tipo, tipo)}<br>%{{x|%d/%m}}<br>Taxa: %{{y:.1f}}%<extra></extra>",
+        ))
+    fig_taxa.update_layout(
+        margin=dict(l=0, r=0, t=10, b=0),
+        height=320,
+        yaxis=dict(title="Taxa (%)", ticksuffix="%", rangemode="tozero"),
+        xaxis=dict(title=""),
+        legend_title_text="",
+    )
+    st.plotly_chart(fig_taxa, use_container_width=True)
+
+    # ── Linhas: receita recuperável vs recuperada, dia a dia (total) ─────────
+    st.markdown("**Receita Recuperável vs Recuperada por dia**")
+    receita_dia = grp.groupby("dia").agg(
+        recuperavel=("recuperavel", "sum"),
+        recuperada=("recuperada", "sum"),
+    ).reset_index().sort_values("dia")
+    fig_rev = go.Figure()
+    fig_rev.add_trace(go.Scatter(
+        x=receita_dia["dia"], y=receita_dia["recuperavel"],
+        mode="lines+markers", name="Recuperável",
+        line=dict(color="#EF553B", width=3), marker=dict(size=7),
+        hovertemplate="%{x|%d/%m}<br>Recuperável: R$ %{y:,.2f}<extra></extra>",
+    ))
+    fig_rev.add_trace(go.Scatter(
+        x=receita_dia["dia"], y=receita_dia["recuperada"],
+        mode="lines+markers", name="Recuperada",
+        line=dict(color="#00CC96", width=3), marker=dict(size=7),
+        hovertemplate="%{x|%d/%m}<br>Recuperada: R$ %{y:,.2f}<extra></extra>",
+    ))
+    fig_rev.update_layout(
+        margin=dict(l=0, r=0, t=10, b=0),
+        height=320,
+        yaxis=dict(title="Receita (R$)", rangemode="tozero"),
+        xaxis=dict(title=""),
+        legend_title_text="",
+    )
+    st.plotly_chart(fig_rev, use_container_width=True)
+
+    # ── Tabela detalhada: dia × tipo ─────────────────────────────────────────
+    st.markdown("**Detalhamento por dia e tipo**")
+    ddf = grp.copy()
+    ddf["Tipo"] = ddf["tipo"].map(_LABELS).fillna(ddf["tipo"])
+    ddf["Dia"] = pd.to_datetime(ddf["dia"]).dt.strftime("%d/%m/%Y")
+    ddf = ddf.rename(columns={
+        "eventos": "Eventos",
+        "convertidos": "Convertidos",
+        "taxa": "Taxa (%)",
+        "recuperavel": "Receita Recuperável (R$)",
+        "recuperada": "Receita Recuperada (R$)",
+    })[[
+        "Dia", "Tipo", "Eventos", "Convertidos", "Taxa (%)",
+        "Receita Recuperável (R$)", "Receita Recuperada (R$)",
+    ]]
+    st.dataframe(
+        ddf.style.format({
+            "Taxa (%)": "{:.1f}%",
+            "Receita Recuperável (R$)": "R$ {:,.2f}",
+            "Receita Recuperada (R$)": "R$ {:,.2f}",
+        }),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.divider()
+
     # ── Funil geral ──────────────────────────────────────────────────────────
     st.subheader("Funil Geral")
     fig_funnel = go.Figure(go.Funnel(
