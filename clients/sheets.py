@@ -70,11 +70,22 @@ def _load_tab(spreadsheet_id: str, tab_name: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _clean_tipo(val) -> str:
+    """Limpa rótulo de tipo: remove wrapper de template do Make que não renderizou.
+    Ex: '{{ "boleto_expirado"}}' -> 'boleto_expirado'."""
+    s = str(val or "").strip()
+    if s.startswith("{{") and s.endswith("}}"):
+        s = s.strip("{}").strip().strip('"').strip("'").strip()
+    return s
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def get_recuperacoes() -> pd.DataFrame:
     df = _load_tab(config.SPREADSHEET_ID, "recuperacoes")
     if df.empty:
         return df
+    if "tipo" in df.columns:
+        df["tipo"] = df["tipo"].apply(_clean_tipo)
     df["evento_em"] = pd.to_datetime(df.get("evento_em"), errors="coerce")
     df["evento_em"] = _strip_tz(df["evento_em"])
     df["valor"] = pd.to_numeric(df.get("valor", 0), errors="coerce").fillna(0)
