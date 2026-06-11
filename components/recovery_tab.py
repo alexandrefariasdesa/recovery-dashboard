@@ -26,8 +26,10 @@ def render_recovery_tab(df: pd.DataFrame) -> None:
     total = len(df)
     total_convertidos = int(df["converteu"].sum())
     taxa = (total_convertidos / total * 100) if total > 0 else 0.0
-    receita_recuperavel = df.loc[~df["converteu"], "valor"].sum()
-    receita_recuperada = df.loc[df["converteu"], "valor_recuperado"].sum()
+    # Recuperável = valor de TODOS os eventos (universo em jogo).
+    # Recuperada = valor dos eventos que converteram (subconjunto) → sempre ≤ recuperável.
+    receita_recuperavel = df["valor"].sum()
+    receita_recuperada = df.loc[df["converteu"], "valor"].sum()
 
     # ── Métricas principais ──────────────────────────────────────────────────
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -50,8 +52,8 @@ def render_recovery_tab(df: pd.DataFrame) -> None:
         total_tipo = len(subset)
         conv = int(subset["converteu"].sum())
         rate = (conv / total_tipo * 100) if total_tipo > 0 else 0.0
-        recuperavel = subset.loc[~subset["converteu"], "valor"].sum()
-        recuperada = subset.loc[subset["converteu"], "valor_recuperado"].sum()
+        recuperavel = subset["valor"].sum()
+        recuperada = subset.loc[subset["converteu"], "valor"].sum()
         rows.append({
             "Tipo": _LABELS.get(tipo, tipo),
             "Total": total_tipo,
@@ -114,12 +116,11 @@ def render_recovery_tab(df: pd.DataFrame) -> None:
         eventos=("converteu", "size"),
         convertidos=("converteu", "sum"),
         recuperavel=("valor", "sum"),
-        recuperada=("valor_recuperado", "sum"),
     ).reset_index()
-    # Receita recuperável = valor dos que NÃO converteram
-    nao_conv = daily[~daily["converteu"]].groupby(["dia", "tipo"])["valor"].sum()
+    # Recuperada = valor dos eventos que converteram (subconjunto do recuperável)
+    conv_val = daily[daily["converteu"]].groupby(["dia", "tipo"])["valor"].sum()
     grp = grp.set_index(["dia", "tipo"])
-    grp["recuperavel"] = nao_conv.reindex(grp.index).fillna(0.0)
+    grp["recuperada"] = conv_val.reindex(grp.index).fillna(0.0)
     grp = grp.reset_index()
     grp["taxa"] = (grp["convertidos"] / grp["eventos"] * 100).round(1)
     grp = grp.sort_values("dia")
