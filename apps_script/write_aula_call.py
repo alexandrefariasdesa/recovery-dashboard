@@ -49,7 +49,7 @@ COMPRAS_TAB = "Leads"
 
 # So convida quem comprou em/depois desta data. AJUSTE para o inicio da campanha
 # da aula — um cutoff antigo joga MUITOS compradores na primeira leva.
-AULA_CUTOFF = date(2026, 5, 10)
+AULA_CUTOFF = date(2026, 6, 10)
 
 # Hora de corte: ate este horario convida pra HOJE; depois, pra AMANHA.
 CUTOFF_HOUR = 18
