@@ -4,5 +4,7 @@ __pycache__/
 *.pyc
 .streamlit/secrets.toml
 
-# Apps Script com IDs de planilha (nao versionar)
-apps_script/
+# Apps Script com IDs de planilha (nao versionar) — exceto o script da aula,
+# que precisa estar no repo pro GitHub Actions rodar (sem segredos hardcoded).
+apps_script/*
+!apps_script/write_aula_call.py

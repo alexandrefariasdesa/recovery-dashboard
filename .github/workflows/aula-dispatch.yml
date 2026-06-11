@@ -1,0 +1,39 @@
+name: Disparo Aula - monta lista
+
+# Mantem a aba "Disparo Aula" fresca de hora em hora. NAO envia mensagem —
+# so reescreve a lista de elegiveis; o disparo em si e feito no Make.
+#
+# Horario do negocio: America/Manaus (UTC-4). cron do GitHub e em UTC.
+#   08h-22h local  ==  12:00-23:00 UTC + 00:00-02:00 UTC (dia seguinte)
+# O proprio script decide hoje (<18h local) vs amanha (>=18h local).
+#
+# Pre-requisito (Settings > Secrets and variables > Actions):
+#   GCP_SA_JSON  = conteudo do service_account.json (o JSON inteiro)  <-- unico secret
+
+on:
+  schedule:
+    - cron: "0 0-2,12-23 * * *"
+  workflow_dispatch: {}   # permite rodar manual no botao "Run workflow"
+
+concurrency:
+  group: aula-dispatch
+  cancel-in-progress: false
+
+jobs:
+  montar-lista:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Instala dependencias
+        run: pip install "gspread>=6.0.0" "google-auth>=2.28.0"
+
+      - name: Monta a aba Disparo Aula
+        env:
+          GCP_SA_JSON: ${{ secrets.GCP_SA_JSON }}
+          COMPRADORES_SPREADSHEET_ID: "12nz62-0u4qYFq0ehPKCAn2fOSOyddsmqe8q8FZaYoBo"
+        run: python apps_script/write_aula_call.py
