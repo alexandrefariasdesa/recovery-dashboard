@@ -38,7 +38,7 @@ wrangler secret put SHARED_TOKEN        # invente um segredo (ex.: uuid) — usa
 wrangler deploy
 ```
 
-A URL fica tipo `https://manychat-click-tracker.<seu-subdominio>.workers.dev`.
+URL em produção: `https://manychat-click-tracker.alexandre-farias.workers.dev`.
 Teste o health-check: `GET` nessa URL deve responder `{"ok":true,...}`.
 
 > `SA_PRIVATE_KEY`: copie o valor de `"private_key"` do JSON. O Worker aceita
@@ -50,7 +50,8 @@ Em **cada fluxo** (um por tipo de mensagem), no botão do CTA, adicione a ação
 **External Request** (Pro):
 
 - **Method:** `POST`
-- **URL:** `https://manychat-click-tracker.<subdominio>.workers.dev/click?token=SEU_SHARED_TOKEN`
+- **URL:** `https://manychat-click-tracker.alexandre-farias.workers.dev/click?token=SEU_SHARED_TOKEN`
+  (o `SHARED_TOKEN` está em `manychat-click-tracker/.dev.vars`, fora do git)
 - **Headers:** `Content-Type: application/json`
 - **Body (JSON):**
 
