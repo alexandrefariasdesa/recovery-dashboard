@@ -1,0 +1,156 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+
+from processors.manychat_engagement import LABELS, ALL_TIPOS
+
+_TYPE_COLORS = {
+    "pix_gerado": "#00CC96",
+    "pix_expirado": "#636EFA",
+    "carrinho_abandonado": "#AB63FA",
+    "boleto_gerado": "#FFA15A",
+    "boleto_expirado": "#EF553B",
+    "compra_aprovada": "#19D3F3",
+}
+
+
+def render_manychat_tab(data: dict) -> None:
+    resumo: pd.DataFrame = data.get("resumo", pd.DataFrame())
+    diario: pd.DataFrame = data.get("diario", pd.DataFrame())
+
+    if resumo is None or resumo.empty:
+        st.info(
+            "Nenhum dado de efetividade do ManyChat ainda. Confirme que o "
+            "Worker está gravando na aba `cliques_manychat` e que há disparos "
+            "no período."
+        )
+        return
+
+    st.caption(
+        "**Recebeu** = pessoas distintas que dispararam a ação no período "
+        "(proxy: 1 disparo ≈ 1 mensagem). **Clicou** = cliques registrados pelo "
+        "ManyChat. **CTR** = clicou ÷ recebeu."
+    )
+
+    # ── Totais ───────────────────────────────────────────────────────────────
+    tot_rec = int(resumo["Recebeu (pessoas)"].sum())
+    tot_clk = int(resumo["Clicou (pessoas)"].sum())
+    tot_conv = int(resumo["Converteu pós-clique"].sum())
+    ctr_geral = (tot_clk / tot_rec * 100) if tot_rec else 0.0
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Receberam (pessoas)", f"{tot_rec:,}".replace(",", "."))
+    c2.metric("Clicaram (pessoas)", f"{tot_clk:,}".replace(",", "."))
+    c3.metric("CTR Geral", f"{ctr_geral:.1f}%")
+    c4.metric("Converteram pós-clique", f"{tot_conv:,}".replace(",", "."))
+
+    st.divider()
+
+    # ── Tabela + barras por tipo ─────────────────────────────────────────────
+    st.subheader("Efetividade por Tipo de Mensagem")
+
+    col_l, col_r = st.columns(2)
+    with col_l:
+        fig = px.bar(
+            resumo, x="Tipo", y=["Recebeu (pessoas)", "Clicou (pessoas)"],
+            barmode="group",
+            color_discrete_sequence=["#636EFA", "#00CC96"],
+            labels={"value": "Pessoas", "variable": ""},
+            text_auto=True,
+        )
+        fig.update_layout(legend_title_text="", margin=dict(l=0, r=0, t=10, b=0), height=340)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col_r:
+        show = resumo.drop(columns=["tipo"])
+        st.dataframe(
+            show.style.format({
+                "CTR (%)": "{:.1f}%",
+                "Conv. do clique (%)": "{:.1f}%",
+            }),
+            use_container_width=True,
+            hide_index=True,
+            height=340,
+        )
+
+    # ── CTR por tipo (barra horizontal) ──────────────────────────────────────
+    st.markdown("**CTR (%) por tipo**")
+    ctr_df = resumo.sort_values("CTR (%)", ascending=True)
+    fig_ctr = go.Figure(go.Bar(
+        x=ctr_df["CTR (%)"], y=ctr_df["Tipo"],
+        orientation="h",
+        marker_color=[_TYPE_COLORS.get(t, "#888") for t in ctr_df["tipo"]],
+        text=[f"{v:.1f}%" for v in ctr_df["CTR (%)"]],
+        textposition="outside",
+    ))
+    fig_ctr.update_layout(
+        margin=dict(l=0, r=0, t=10, b=0), height=300,
+        xaxis=dict(title="CTR (%)", ticksuffix="%", rangemode="tozero"),
+    )
+    st.plotly_chart(fig_ctr, use_container_width=True)
+
+    st.divider()
+
+    # ── Diário ───────────────────────────────────────────────────────────────
+    if diario is not None and not diario.empty:
+        st.subheader("Cliques vs Recebidos — dia a dia")
+
+        st.markdown("**Cliques por tipo (volume)**")
+        fig_d = go.Figure()
+        for tipo in ALL_TIPOS:
+            sub = diario[diario["tipo"] == tipo]
+            if sub.empty or sub["cliques"].sum() == 0:
+                continue
+            fig_d.add_trace(go.Scatter(
+                x=sub["dia"], y=sub["cliques"], mode="lines+markers",
+                name=LABELS.get(tipo, tipo),
+                line=dict(color=_TYPE_COLORS.get(tipo), width=3),
+                marker=dict(size=7),
+            ))
+        fig_d.update_layout(
+            margin=dict(l=0, r=0, t=10, b=0), height=320,
+            yaxis=dict(title="Cliques", rangemode="tozero"),
+            xaxis=dict(title=""), legend_title_text="",
+        )
+        st.plotly_chart(fig_d, use_container_width=True)
+
+        # ── Taxa de clique (CTR %) por dia por tipo ──────────────────────────
+        st.markdown("**Taxa de clique (CTR %) por tipo, dia a dia**")
+        fig_ctr_d = go.Figure()
+        for tipo in ALL_TIPOS:
+            sub = diario[(diario["tipo"] == tipo) & (diario["recebidos"] > 0)]
+            if sub.empty:
+                continue
+            fig_ctr_d.add_trace(go.Scatter(
+                x=sub["dia"], y=sub["ctr"], mode="lines+markers",
+                name=LABELS.get(tipo, tipo),
+                line=dict(color=_TYPE_COLORS.get(tipo), width=3),
+                marker=dict(size=7),
+                hovertemplate=(
+                    f"{LABELS.get(tipo, tipo)}<br>%{{x|%d/%m}}<br>"
+                    "CTR: %{y:.1f}%<extra></extra>"
+                ),
+            ))
+        fig_ctr_d.update_layout(
+            margin=dict(l=0, r=0, t=10, b=0), height=320,
+            yaxis=dict(title="CTR (%)", ticksuffix="%", rangemode="tozero"),
+            xaxis=dict(title=""), legend_title_text="",
+        )
+        st.plotly_chart(fig_ctr_d, use_container_width=True)
+        st.caption(
+            "CTR diário = cliques do dia ÷ recebidos do dia. Como o clique pode "
+            "vir horas/dias depois da mensagem, leia como tendência — não como "
+            "taxa exata por coorte de envio."
+        )
+
+        ddf = diario.copy()
+        ddf["Tipo"] = ddf["tipo"].map(LABELS).fillna(ddf["tipo"])
+        ddf["Dia"] = pd.to_datetime(ddf["dia"]).dt.strftime("%d/%m/%Y")
+        ddf = ddf.rename(columns={
+            "recebidos": "Recebidos", "cliques": "Cliques", "ctr": "CTR (%)",
+        })[["Dia", "Tipo", "Recebidos", "Cliques", "CTR (%)"]]
+        st.dataframe(
+            ddf.style.format({"CTR (%)": "{:.1f}%"}),
+            use_container_width=True, hide_index=True,
+        )

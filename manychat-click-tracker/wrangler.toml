@@ -1,0 +1,10 @@
+name = "manychat-click-tracker"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# Vars não-secretas. Os secrets (SA_EMAIL, SA_PRIVATE_KEY, SHARED_TOKEN) vão
+# via `wrangler secret put` — NÃO coloque eles aqui (esse arquivo é commitado).
+[vars]
+TAB_NAME = "cliques_manychat"
+# SHEET_ID pode ficar aqui (não é segredo) ou virar secret. Preencha:
+# SHEET_ID = "1AbC...."

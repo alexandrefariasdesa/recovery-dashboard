@@ -8,3 +8,6 @@ __pycache__/
 # que precisa estar no repo pro GitHub Actions rodar (sem segredos hardcoded).
 apps_script/*
 !apps_script/write_aula_call.py
+
+# DB local do ruflo
+ruvector.db

@@ -100,6 +100,24 @@ def get_recuperacoes() -> pd.DataFrame:
     return df
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def get_cliques_manychat() -> pd.DataFrame:
+    """Cliques nos botões das mensagens do ManyChat (gravados pelo Cloudflare
+    Worker). Uma linha por clique. Colunas: clicado_em, telefone,
+    subscriber_id, tipo, url."""
+    df = _load_tab(config.SPREADSHEET_ID, "cliques_manychat")
+    if df.empty:
+        return df
+    df.columns = [c.strip() for c in df.columns]
+    if "tipo" in df.columns:
+        df["tipo"] = df["tipo"].apply(_clean_tipo).str.lower()
+    df["clicado_em"] = pd.to_datetime(df.get("clicado_em"), errors="coerce", utc=True)
+    df["clicado_em"] = _strip_tz(df["clicado_em"])
+    if "subscriber_id" in df.columns:
+        df["subscriber_id"] = df["subscriber_id"].astype(str)
+    return df
+
+
 def _detect_phone_col_by_values(df: pd.DataFrame) -> str | None:
     """Detecta qual coluna contém telefones varrendo os valores (não o nome da coluna)."""
     import re
