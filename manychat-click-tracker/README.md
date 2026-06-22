@@ -44,33 +44,38 @@ Teste o health-check: `GET` nessa URL deve responder `{"ok":true,...}`.
 > `SA_PRIVATE_KEY`: copie o valor de `"private_key"` do JSON. O Worker aceita
 > tanto com `\n` escapado quanto com quebras de linha reais.
 
-## 3. ManyChat — disparar no clique
+## 3. ManyChat — disparar no clique (receita à prova de erro)
 
-Em **cada fluxo** (um por tipo de mensagem), no botão do CTA, adicione a ação
-**External Request** (Pro):
+Em **cada fluxo**, no botão do CTA (ex.: o "Verificar"), adicione a ação
+**Solicitação externa** (External Request, Pro). O método que funciona sem
+digitar JSON com tokens à mão:
 
-- **Method:** `POST`
-- **URL:** `https://manychat-click-tracker.alexandre-farias.workers.dev/click?token=SEU_SHARED_TOKEN`
-  (o `SHARED_TOKEN` está em `manychat-click-tracker/.dev.vars`, fora do git)
-- **Headers:** `Content-Type: application/json`
-- **Body (JSON):**
+1. **Tipo de Pedido:** `POST`
+2. **Solicitar URL:** cole a URL do fluxo (tabela abaixo) — o `tipo` vai na
+   própria URL como `&tipo=...`.
+3. **Aba Corpo:** clique **"+ Adicionar Full Contact Data"** (1 clique). Isso
+   manda `phone` e `id` do contato automaticamente — não precisa montar JSON.
+4. **Cabeçalho:** não precisa (o Worker faz parse do JSON de qualquer jeito).
+5. **Solicitação De Teste:** tem que voltar `200 OK` `{"ok":true,...}`.
+6. **Salvar** → **Atualização** (publicar a automação).
 
-```json
-{
-  "tipo": "pix_expirado",
-  "telefone": "{{phone}}",
-  "subscriber_id": "{{user_id}}",
-  "url": ""
-}
-```
+URL por fluxo (token de `manychat-click-tracker/.dev.vars`):
 
-Troque o `"tipo"` conforme o fluxo. Valores aceitos:
+| Fluxo no ManyChat | URL (cole inteira) |
+|---|---|
+| [PS] RECUPERAÇÃO DE CARRINHO | `…/click?token=SEU_TOKEN&tipo=carrinho_abandonado` |
+| [PS] PIX E BOLETO GERADO | `…/click?token=SEU_TOKEN&tipo=pix_boleto_gerado` |
+| [PS] PIX E BOLETO GERADO EXPIRADO | `…/click?token=SEU_TOKEN&tipo=pix_boleto_expirado` |
+| (compra aprovada) | `…/click?token=SEU_TOKEN&tipo=compra_aprovada` |
 
-`pix_gerado` · `pix_expirado` · `carrinho_abandonado` · `boleto_gerado` ·
-`boleto_expirado` · `compra_aprovada`
+Base: `https://manychat-click-tracker.alexandre-farias.workers.dev`
 
-> O botão continua abrindo o link normalmente (pix/checkout) — a External
-> Request é uma ação adicional no mesmo clique. Não precisa de redirect.
+Tipos aceitos pelo Worker: `pix_boleto_gerado` · `pix_boleto_expirado` ·
+`carrinho_abandonado` · `compra_aprovada` (+ os individuais pix/boleto, se um
+dia separar os fluxos).
+
+> O botão continua abrindo o link normalmente — a Solicitação externa é uma
+> ação adicional no mesmo clique. Sem redirect.
 
 ## 4. Conferir
 

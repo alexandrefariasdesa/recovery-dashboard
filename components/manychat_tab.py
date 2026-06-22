@@ -6,11 +6,9 @@ import plotly.graph_objects as go
 from processors.manychat_engagement import LABELS, ALL_TIPOS
 
 _TYPE_COLORS = {
-    "pix_gerado": "#00CC96",
-    "pix_expirado": "#636EFA",
+    "pix_boleto_gerado": "#00CC96",
+    "pix_boleto_expirado": "#636EFA",
     "carrinho_abandonado": "#AB63FA",
-    "boleto_gerado": "#FFA15A",
-    "boleto_expirado": "#EF553B",
     "compra_aprovada": "#19D3F3",
 }
 

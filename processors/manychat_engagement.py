@@ -23,21 +23,23 @@ import streamlit as st
 from clients.sheets import get_recuperacoes, get_compras, get_cliques_manychat
 from utils import phone_variants
 
-# Tipos rastreados + ordem de exibição. compra_aprovada vem de `compras`,
-# o resto vem de `recuperacoes`.
-RECOVERY_TIPOS = [
-    "pix_gerado", "pix_expirado",
-    "carrinho_abandonado",
-    "boleto_gerado", "boleto_expirado",
-]
-ALL_TIPOS = RECOVERY_TIPOS + ["compra_aprovada"]
+# Buckets rastreados na aba ManyChat → tipos de origem na aba `recuperacoes`.
+# Os fluxos do ManyChat juntam PIX + Boleto numa sequência só, então cada bucket
+# soma os dois no denominador. compra_aprovada vem de `compras`.
+TRACKED = {
+    "pix_boleto_gerado":   ["pix_gerado", "boleto_gerado"],
+    "pix_boleto_expirado": ["pix_expirado", "boleto_expirado"],
+    "carrinho_abandonado": ["carrinho_abandonado"],
+    "compra_aprovada":     [],  # denominador vem de `compras`
+}
+ALL_TIPOS = list(TRACKED.keys())
+# tipo de origem (recuperacoes) -> bucket rastreado
+_SRC_TO_BUCKET = {src: b for b, srcs in TRACKED.items() for src in srcs}
 
 LABELS = {
-    "pix_gerado": "PIX Gerado",
-    "pix_expirado": "PIX Expirado",
+    "pix_boleto_gerado": "PIX/Boleto Gerado",
+    "pix_boleto_expirado": "PIX/Boleto Expirado",
     "carrinho_abandonado": "Carrinho Abandonado",
-    "boleto_gerado": "Boleto Gerado",
-    "boleto_expirado": "Boleto Expirado",
     "compra_aprovada": "Compra Aprovada",
 }
 
@@ -89,14 +91,14 @@ def build_manychat_engagement(start_date: date, end_date: date) -> dict:
         )
         rec = recuperacoes[mask]
         for _, row in rec.iterrows():
-            tipo = str(row.get("tipo", ""))
-            if tipo not in RECOVERY_TIPOS:
+            bucket = _SRC_TO_BUCKET.get(str(row.get("tipo", "")))
+            if not bucket:
                 continue
             key = _canon(str(row.get("telefone", "")))
             if key:
-                recebeu[tipo].add(key)
-            disparos[tipo] += 1
-            recebeu_dia.append({"dia": row["evento_em"].date(), "tipo": tipo, "_k": key})
+                recebeu[bucket].add(key)
+            disparos[bucket] += 1
+            recebeu_dia.append({"dia": row["evento_em"].date(), "tipo": bucket, "_k": key})
 
     if not compras.empty:
         mask = (

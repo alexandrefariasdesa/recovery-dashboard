@@ -32,6 +32,10 @@ const SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 
 // Tipos aceitos — espelham os rótulos da aba `recuperacoes` (+ compra_aprovada).
 const VALID_TIPOS = new Set([
+  // tipos combinados (fluxos do ManyChat juntam pix + boleto)
+  'pix_boleto_gerado',
+  'pix_boleto_expirado',
+  // individuais (mantidos por flexibilidade)
   'pix_gerado',
   'pix_expirado',
   'boleto_gerado',
@@ -63,9 +67,15 @@ export default {
       return json({ error: 'invalid json' }, 400);
     }
 
-    const tipo = String(body.tipo || '').trim().toLowerCase();
-    const telefone = onlyDigits(body.telefone || body.phone || '');
-    const subscriberId = String(body.subscriber_id || body.user_id || '').trim();
+    // tipo pode vir na query (?tipo=...) ou no corpo. A query é o caminho fácil
+    // no ManyChat: o corpo fica sendo só o "Full Contact Data" (1 clique), que
+    // traz phone/id sem precisar montar JSON com tokens à mão.
+    const tipo = String(url.searchParams.get('tipo') || body.tipo || '').trim().toLowerCase();
+    // ManyChat "Full Contact Data" usa `phone` e `id`.
+    const telefone = onlyDigits(body.telefone || body.phone || body.whatsapp_phone || '');
+    const subscriberId = String(
+      body.subscriber_id || body.user_id || body.id || '',
+    ).trim();
     const destino = String(body.url || '').trim();
 
     if (!VALID_TIPOS.has(tipo)) {
