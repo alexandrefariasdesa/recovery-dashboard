@@ -148,8 +148,9 @@ def build_manychat_engagement(start_date: date, end_date: date) -> dict:
         rows.append({
             "tipo": tipo,
             "Tipo": LABELS[tipo],
-            "Recebeu (pessoas)": n_rec,
+            # ordem do funil: disparos → recebeu → clicou → conversão pós-clique
             "Disparos": disparos[tipo],
+            "Recebeu (pessoas)": n_rec,
             "Clicou (pessoas)": n_clk,
             "CTR (%)": round(n_clk / n_rec * 100, 1) if n_rec else 0.0,
             "Converteu pós-clique": n_conv,

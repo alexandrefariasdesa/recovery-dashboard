@@ -26,22 +26,41 @@ def render_manychat_tab(data: dict) -> None:
         return
 
     st.caption(
-        "**Recebeu** = pessoas distintas que dispararam a ação no período "
-        "(proxy: 1 disparo ≈ 1 mensagem). **Clicou** = cliques registrados pelo "
-        "ManyChat. **CTR** = clicou ÷ recebeu."
+        "Funil: **Disparos** (mensagens enviadas) → **Recebeu** (pessoas distintas, "
+        "proxy: 1 disparo ≈ 1 mensagem) → **Clicou** (cliques no botão registrados) → "
+        "**Converteu pós-clique** (quem clicou e tem compra no mesmo dia ou depois). "
+        "CTR = clicou ÷ recebeu."
     )
 
-    # ── Totais ───────────────────────────────────────────────────────────────
+    # ── Totais (na ordem do funil) ───────────────────────────────────────────
+    tot_disp = int(resumo["Disparos"].sum())
     tot_rec = int(resumo["Recebeu (pessoas)"].sum())
     tot_clk = int(resumo["Clicou (pessoas)"].sum())
     tot_conv = int(resumo["Converteu pós-clique"].sum())
     ctr_geral = (tot_clk / tot_rec * 100) if tot_rec else 0.0
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Receberam (pessoas)", f"{tot_rec:,}".replace(",", "."))
-    c2.metric("Clicaram (pessoas)", f"{tot_clk:,}".replace(",", "."))
-    c3.metric("CTR Geral", f"{ctr_geral:.1f}%")
-    c4.metric("Converteram pós-clique", f"{tot_conv:,}".replace(",", "."))
+    def _br(n):
+        return f"{n:,}".replace(",", ".")
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Disparos", _br(tot_disp))
+    c2.metric("Receberam (pessoas)", _br(tot_rec))
+    c3.metric("Clicaram (pessoas)", _br(tot_clk))
+    c4.metric("CTR Geral", f"{ctr_geral:.1f}%")
+    c5.metric("Converteram pós-clique", _br(tot_conv))
+
+    st.divider()
+
+    # ── Funil geral (Disparos → Recebeu → Clicou → Converteu) ────────────────
+    st.subheader("Funil Geral")
+    fig_fun = go.Figure(go.Funnel(
+        y=["Disparos", "Recebeu", "Clicou", "Converteu pós-clique"],
+        x=[tot_disp, tot_rec, tot_clk, tot_conv],
+        textinfo="value+percent initial",
+        marker={"color": ["#AB63FA", "#636EFA", "#00CC96", "#19D3F3"]},
+    ))
+    fig_fun.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=280)
+    st.plotly_chart(fig_fun, use_container_width=True)
 
     st.divider()
 
@@ -51,10 +70,11 @@ def render_manychat_tab(data: dict) -> None:
     col_l, col_r = st.columns(2)
     with col_l:
         fig = px.bar(
-            resumo, x="Tipo", y=["Recebeu (pessoas)", "Clicou (pessoas)"],
+            resumo, x="Tipo",
+            y=["Disparos", "Recebeu (pessoas)", "Clicou (pessoas)"],
             barmode="group",
-            color_discrete_sequence=["#636EFA", "#00CC96"],
-            labels={"value": "Pessoas", "variable": ""},
+            color_discrete_sequence=["#AB63FA", "#636EFA", "#00CC96"],
+            labels={"value": "Quantidade", "variable": ""},
             text_auto=True,
         )
         fig.update_layout(legend_title_text="", margin=dict(l=0, r=0, t=10, b=0), height=340)
