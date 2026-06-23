@@ -53,9 +53,23 @@ def render_manychat_tab(data: dict) -> None:
 
     # ── Funil geral (Disparos → Recebeu → Clicou → Converteu) ────────────────
     st.subheader("Funil Geral")
+    fun_opts = ["Todos (geral)"] + resumo["Tipo"].tolist()
+    escolha = st.selectbox("Escolha o funil", fun_opts, index=0, key="mc_funil_sel")
+
+    if escolha == "Todos (geral)":
+        fx = [tot_disp, tot_rec, tot_clk, tot_conv]
+    else:
+        r = resumo[resumo["Tipo"] == escolha].iloc[0]
+        fx = [
+            int(r["Disparos"]),
+            int(r["Recebeu (pessoas)"]),
+            int(r["Clicou (pessoas)"]),
+            int(r["Converteu pós-clique"]),
+        ]
+
     fig_fun = go.Figure(go.Funnel(
         y=["Disparos", "Recebeu", "Clicou", "Converteu pós-clique"],
-        x=[tot_disp, tot_rec, tot_clk, tot_conv],
+        x=fx,
         textinfo="value+percent initial",
         marker={"color": ["#AB63FA", "#636EFA", "#00CC96", "#19D3F3"]},
     ))
