@@ -173,7 +173,10 @@ def build_manychat_engagement(start_date: date, end_date: date) -> dict:
     diario = pd.merge(rec_daily, clk_daily, on=["dia", "tipo"], how="outer")
     if not diario.empty:
         diario[["recebidos", "cliques"]] = diario[["recebidos", "cliques"]].fillna(0).astype(int)
-        diario["ctr"] = (diario["cliques"] / diario["recebidos"].replace(0, pd.NA) * 100).round(1)
+        # recebidos==0 vira NaN (float) — não pd.NA (object) — pra a divisão render
+        # NaN e o .round(1) não estourar (TypeError: NAType não define __round__).
+        rec_nz = diario["recebidos"].where(diario["recebidos"] > 0)
+        diario["ctr"] = (diario["cliques"] / rec_nz * 100).round(1)
         diario = diario.sort_values("dia")
 
     return {"resumo": resumo, "diario": diario}
