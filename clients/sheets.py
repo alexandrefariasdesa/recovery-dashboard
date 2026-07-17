@@ -118,6 +118,26 @@ def get_cliques_manychat() -> pd.DataFrame:
     return df
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def get_eventos_manychat() -> pd.DataFrame:
+    """Eventos de etapa dos fluxos do ManyChat (gravados pelo Cloudflare Worker
+    recovery-flow-tracker). Uma linha por evento. Colunas: ts, telefone,
+    subscriber_id, fluxo, etapa."""
+    df = _load_tab(config.SPREADSHEET_ID, "eventos_manychat")
+    if df.empty:
+        return df
+    df.columns = [c.strip() for c in df.columns]
+    if "fluxo" in df.columns:
+        df["fluxo"] = df["fluxo"].apply(_clean_tipo).str.lower()
+    if "etapa" in df.columns:
+        df["etapa"] = df["etapa"].apply(_clean_tipo).str.lower()
+    df["ts"] = pd.to_datetime(df.get("ts"), errors="coerce", utc=True)
+    df["ts"] = _strip_tz(df["ts"])
+    if "subscriber_id" in df.columns:
+        df["subscriber_id"] = df["subscriber_id"].astype(str)
+    return df
+
+
 def _detect_phone_col_by_values(df: pd.DataFrame) -> str | None:
     """Detecta qual coluna contém telefones varrendo os valores (não o nome da coluna)."""
     import re

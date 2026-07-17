@@ -5,10 +5,12 @@ from processors.recovery import build_recovery_dataframe
 from processors.upsell import build_upsell_dataframe
 from processors.group_followup import build_group_followup_dataframe
 from processors.manychat_engagement import build_manychat_engagement
+from processors.manychat_funil import build_funis
 from components.recovery_tab import render_recovery_tab
 from components.upsell_tab import render_upsell_tab
 from components.group_followup_tab import render_group_followup_tab
 from components.manychat_tab import render_manychat_tab
+from components.manychat_funil_tab import render_funil_tab
 
 st.set_page_config(
     page_title="Dashboard de Recuperação & Upsell",
@@ -91,11 +93,12 @@ st.caption(f"Período: **{start_date.strftime('%d/%m/%Y')}** até **{end_date.st
 st.divider()
 
 # ── Abas ─────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🔁 Recuperações  (Boleto / PIX / Carrinho)",
     "⬆️ Conversão Upsell",
     "👥 Grupo — 2ª chamada",
     "📣 Efetividade ManyChat",
+    "🧭 Funil de Etapas ManyChat",
 ])
 
 with tab1:
@@ -143,5 +146,15 @@ with tab4:
             render_manychat_tab(mc_data)
         except Exception as exc:
             st.error(f"Erro ao carregar efetividade do ManyChat: {exc}")
+            with st.expander("Detalhes do erro"):
+                st.exception(exc)
+
+with tab5:
+    with st.spinner("Carregando funil de etapas do ManyChat..."):
+        try:
+            funil_data = build_funis(start_date, end_date)
+            render_funil_tab(funil_data)
+        except Exception as exc:
+            st.error(f"Erro ao carregar funil de etapas: {exc}")
             with st.expander("Detalhes do erro"):
                 st.exception(exc)
