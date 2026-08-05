@@ -142,14 +142,14 @@ def main():
     rec_rows = []
     for r in rec_raw:
         low = {str(k).strip().lower(): v for k, v in r.items()}
+        # Mantém eventos SEM telefone: o dashboard conta eles no total (só não
+        # convertem, por não ter como cruzar). Excluí-los distorcia total/receita.
         tel = norm_phone(low.get("telefone", ""))
-        if not tel:
-            continue
         rec_rows.append({
             "evento_em": to_utc_iso(low.get("evento_em")) or None,
             "tipo": clean_tipo(low.get("tipo")),
             "nome": (low.get("nome") or None),
-            "telefone": tel,
+            "telefone": (tel or None),
             "valor": to_valor(low.get("valor"), cents_detect=False),  # recuperacoes já em reais
         })
     rec_rows = [r for r in rec_rows if r["evento_em"]]

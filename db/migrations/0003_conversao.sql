@@ -64,4 +64,4 @@ left join lateral (
   where c.telefone_core = re.telefone_core
   order by c.compra_em desc
   limit 1
-) c on true;
+) c on re.telefone_core is not null and re.telefone_core <> '';  -- evento sem telefone nunca casa

@@ -16,6 +16,14 @@ _LABELS = {
 
 @st.cache_data(ttl=300, show_spinner=False)
 def build_recovery_dataframe(start_date: date, end_date: date) -> pd.DataFrame:
+    # Migração: com o flag ligado, lê a conversão pronta do Postgres (view
+    # v_recovery_conversao) em vez de cruzar as planilhas em Python. Mesmas
+    # colunas de saída — a aba não muda. Reversível: desliga o flag e volta.
+    import config
+    if getattr(config, "USE_POSTGRES", False):
+        from clients.postgres import fetch_recovery_conversao
+        return fetch_recovery_conversao(start_date, end_date)
+
     recuperacoes = get_recuperacoes()
     compras = get_compras()
 
