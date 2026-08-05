@@ -183,12 +183,46 @@ def main():
         })
     comp_rows = [r for r in comp_rows if r["compra_em"]]
 
+    # ---- eventos_manychat → manychat_eventos ----
+    ev_raw = read_tab(ENV["SPREADSHEET_ID"], "eventos_manychat")
+    ev_rows = []
+    for r in ev_raw:
+        low = {str(k).strip().lower(): v for k, v in r.items()}
+        em = to_utc_iso(low.get("ts") or low.get("evento_em"))
+        if not em:
+            continue
+        ev_rows.append({
+            "evento_em": em,
+            "telefone": (norm_phone(low.get("telefone", "")) or None),
+            "subscriber_id": (str(low.get("subscriber_id") or "") or None),
+            "fluxo": clean_tipo(low.get("fluxo")),
+            "etapa": clean_tipo(low.get("etapa")),
+        })
+
+    # ---- cliques_manychat → manychat_cliques ----
+    cl_raw = read_tab(ENV["SPREADSHEET_ID"], "cliques_manychat")
+    cl_rows = []
+    for r in cl_raw:
+        low = {str(k).strip().lower(): v for k, v in r.items()}
+        cem = to_utc_iso(low.get("clicado_em"))
+        if not cem:
+            continue
+        cl_rows.append({
+            "clicado_em": cem,
+            "telefone": (norm_phone(low.get("telefone", "")) or None),
+            "subscriber_id": (str(low.get("subscriber_id") or "") or None),
+            "tipo": clean_tipo(low.get("tipo")),
+            "url": (low.get("url") or None),
+        })
+
     print("O que será importado:")
     summarize("recovery_events (de recuperacoes)", rec_rows, "evento_em")
     from collections import Counter
     tc = Counter(r["tipo"] for r in rec_rows)
     print("    tipos:", dict(tc))
     summarize("compras (de Leads)", comp_rows, "compra_em")
+    summarize("manychat_eventos (de eventos_manychat)", ev_rows, "evento_em")
+    summarize("manychat_cliques (de cliques_manychat)", cl_rows, "clicado_em")
 
     if not APPLY:
         print("\nDRY-RUN. Rode com --apply para gravar.")
@@ -197,7 +231,10 @@ def main():
     print("\nGravando (TRUNCATE + insert)...")
     sb_insert("recovery_events", rec_rows, truncate=True)
     sb_insert("compras", comp_rows, truncate=True)
-    print(f"OK: {len(rec_rows)} recovery_events, {len(comp_rows)} compras.")
+    sb_insert("manychat_eventos", ev_rows, truncate=True)
+    sb_insert("manychat_cliques", cl_rows, truncate=True)
+    print(f"OK: {len(rec_rows)} recovery_events, {len(comp_rows)} compras, "
+          f"{len(ev_rows)} manychat_eventos, {len(cl_rows)} manychat_cliques.")
 
 
 if __name__ == "__main__":

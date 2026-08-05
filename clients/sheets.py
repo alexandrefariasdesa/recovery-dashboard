@@ -81,6 +81,9 @@ def _clean_tipo(val) -> str:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def get_recuperacoes() -> pd.DataFrame:
+    if getattr(config, "USE_POSTGRES", False):
+        from clients.postgres import get_recuperacoes_pg
+        return get_recuperacoes_pg()
     df = _load_tab(config.SPREADSHEET_ID, "recuperacoes")
     if df.empty:
         return df
@@ -105,6 +108,9 @@ def get_cliques_manychat() -> pd.DataFrame:
     """Cliques nos botões das mensagens do ManyChat (gravados pelo Cloudflare
     Worker). Uma linha por clique. Colunas: clicado_em, telefone,
     subscriber_id, tipo, url."""
+    if getattr(config, "USE_POSTGRES", False):
+        from clients.postgres import get_cliques_manychat_pg
+        return get_cliques_manychat_pg()
     df = _load_tab(config.SPREADSHEET_ID, "cliques_manychat")
     if df.empty:
         return df
@@ -123,6 +129,9 @@ def get_eventos_manychat() -> pd.DataFrame:
     """Eventos de etapa dos fluxos do ManyChat (gravados pelo Cloudflare Worker
     recovery-flow-tracker). Uma linha por evento. Colunas: ts, telefone,
     subscriber_id, fluxo, etapa."""
+    if getattr(config, "USE_POSTGRES", False):
+        from clients.postgres import get_eventos_manychat_pg
+        return get_eventos_manychat_pg()
     df = _load_tab(config.SPREADSHEET_ID, "eventos_manychat")
     if df.empty:
         return df
@@ -198,6 +207,9 @@ def get_grupo() -> pd.DataFrame:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def get_compras() -> pd.DataFrame:
+    if getattr(config, "USE_POSTGRES", False):
+        from clients.postgres import get_compras_pg
+        return get_compras_pg()
     sid = config.COMPRADORES_SPREADSHEET_ID
     tab = config.COMPRADORES_TAB
     if not sid:

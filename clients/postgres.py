@@ -66,3 +66,72 @@ def fetch_recovery_conversao(start_date, end_date) -> pd.DataFrame:
     df["produto_comprado"] = df["produto_comprado"].fillna("")
     df["recovery_label"] = df["tipo"].map(_LABELS).fillna(df["tipo"])
     return df
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Leitores RAW por tabela — espelham as get_* de clients/sheets.py (mesma forma e
+# mesmo tratamento de fuso), pra as OUTRAS abas migrarem sem mexer nos processors.
+# ─────────────────────────────────────────────────────────────────────────────
+def _read(query: str) -> pd.DataFrame:
+    conn = _connect()
+    try:
+        cur = conn.cursor()
+        cur.execute(query)
+        cols = [d[0] for d in cur.description]
+        rows = cur.fetchall()
+        cur.close()
+    finally:
+        conn.close()
+    return pd.DataFrame(rows, columns=cols)
+
+
+def _sp_naive(s):
+    """timestamptz UTC → naïve na parede de São Paulo (igual get_recuperacoes/compras)."""
+    return pd.to_datetime(s, utc=True, errors="coerce").dt.tz_convert("America/Sao_Paulo").dt.tz_localize(None)
+
+
+def _utc_naive(s):
+    """timestamptz → naïve em UTC (igual get_eventos/cliques_manychat, que usam utc=True)."""
+    return pd.to_datetime(s, utc=True, errors="coerce").dt.tz_localize(None)
+
+
+def get_recuperacoes_pg() -> pd.DataFrame:
+    df = _read("select tipo, evento_em, nome, telefone, valor from recovery_events")
+    if df.empty:
+        return df
+    df["evento_em"] = _sp_naive(df["evento_em"])
+    df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0)
+    df["telefone"] = df["telefone"].fillna("").astype(str)
+    df["converteu"] = False
+    df["valor_recuperado"] = 0.0
+    return df
+
+
+def get_compras_pg() -> pd.DataFrame:
+    df = _read("select nome, telefone, produto, valor, compra_em from compras")
+    if df.empty:
+        return df
+    df["compra_em"] = _sp_naive(df["compra_em"])
+    df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0).astype(float)
+    df["telefone"] = df["telefone"].fillna("").astype(str)
+    return df
+
+
+def get_eventos_manychat_pg() -> pd.DataFrame:
+    df = _read("select evento_em as ts, telefone, subscriber_id, fluxo, etapa from manychat_eventos")
+    if df.empty:
+        return df
+    df["ts"] = _utc_naive(df["ts"])
+    df["telefone"] = df["telefone"].fillna("").astype(str)
+    df["subscriber_id"] = df["subscriber_id"].fillna("").astype(str)
+    return df
+
+
+def get_cliques_manychat_pg() -> pd.DataFrame:
+    df = _read("select clicado_em, telefone, subscriber_id, tipo, url from manychat_cliques")
+    if df.empty:
+        return df
+    df["clicado_em"] = _utc_naive(df["clicado_em"])
+    df["telefone"] = df["telefone"].fillna("").astype(str)
+    df["subscriber_id"] = df["subscriber_id"].fillna("").astype(str)
+    return df
