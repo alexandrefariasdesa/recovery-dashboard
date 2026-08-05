@@ -49,13 +49,24 @@ function pick(g: (p: string) => unknown, ...paths: string[]): string | null {
 const onlyDigits = (s: string | null) => (s ?? "").replace(/\D/g, "");
 
 // Valor pode vir em reais (float) ou centavos (int). Heurística: inteiro >= 1000
-// sem casa decimal provavelmente é centavos.
+// sem casa decimal provavelmente é centavos. (Fallback; a Payt usa centavos.)
 function toReais(raw: string | null): number | null {
   if (raw == null) return null;
   const n = Number(raw);
   if (isNaN(n)) return null;
   if (Number.isInteger(n) && Math.abs(n) >= 1000) return n / 100;
   return n;
+}
+
+// A Payt manda timestamp naïve "2026-07-26 00:49:17" (sem T, sem fuso). É horário
+// local do Brasil (São Paulo, UTC-3). Sem carimbar o fuso, o V8 interpretaria em
+// UTC e a data poderia pular um dia perto da meia-noite.
+function parsePaytDate(s: string | null): Date {
+  if (!s) return new Date();
+  const t = s.trim().replace(" ", "T");
+  const jaTemFuso = /[zZ]|[+-]\d\d:?\d\d$/.test(t);
+  const d = new Date(jaTemFuso ? t : t + "-03:00");
+  return isNaN(d.getTime()) ? new Date() : d;
 }
 
 // Deriva o tipo do evento a partir de payment_method + status/event. Liberal:
@@ -98,12 +109,11 @@ Deno.serve(async (req) => {
   if (!SHARED_TOKEN || token !== SHARED_TOKEN) return json({ error: "unauthorized" }, 401);
 
   const raw = await req.text();
-  let body: Record<string, unknown> = {};
-  try { body = JSON.parse(raw); } catch { body = Object.fromEntries(new URLSearchParams(raw)); }
-
-  // LOG DE DESCOBERTA: payload inteiro em toda chamada. Tirar quando o mapa
-  // estiver confirmado com evento real.
-  console.log("payt-webhook payload:", raw.slice(0, 4000));
+  let parsed: unknown = {};
+  try { parsed = JSON.parse(raw); } catch { parsed = Object.fromEntries(new URLSearchParams(raw)); }
+  // A PAYT MANDA O CORPO COMO ARRAY DE 1 OBJETO: [ { ... } ]. Desembrulha —
+  // era isso que fazia todo caminho aninhado (método, valor) voltar vazio.
+  const body = (Array.isArray(parsed) ? (parsed[0] ?? {}) : parsed) as Record<string, unknown>;
 
   const g = reader(body);
   // Precedência do tipo:
@@ -127,11 +137,22 @@ Deno.serve(async (req) => {
   } else {
     tipo = derivarTipo(g);
   }
+
+  // Só loga o payload inteiro quando NÃO resolveu o tipo — pra achar o campo
+  // sem encher o log em todo evento de alto volume.
+  if (tipo.startsWith("desconhecido")) {
+    console.error("payt-webhook: tipo não resolvido:", tipo, "| payload:", raw.slice(0, 4000));
+  }
   const nome = pick(g, "customer.name", "transaction.customer.name", "data.customer.name", "name", "buyer.name");
   const telefone = onlyDigits(pick(g, "customer.phone", "transaction.customer.phone", "data.customer.phone", "phone", "buyer.phone", "whatsapp"));
-  const valor = toReais(pick(g, "amount", "value", "total", "transaction.amount", "data.amount", "price"));
-  const eventoEmRaw = pick(g, "created_at", "date", "transaction.created_at", "data.created_at", "updated_at", "occurred_at");
-  const eventoEm = eventoEmRaw ? new Date(eventoEmRaw) : new Date();
+  // Payt: valor em CENTAVOS em transaction.total_price / product.price.
+  const centavos = pick(g, "transaction.total_price", "total_price", "product.price");
+  const valor = (centavos != null && !isNaN(Number(centavos)))
+    ? Number(centavos) / 100
+    : toReais(pick(g, "amount", "value", "total"));
+  const eventoEm = parsePaytDate(
+    pick(g, "transaction.created_at", "started_at", "created_at", "transaction.updated_at", "updated_at"),
+  );
 
   if (!telefone) {
     // Sem telefone não dá pra cruzar conversão. Loga e aceita (200) pra Payt não
