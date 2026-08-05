@@ -59,9 +59,20 @@ function toReais(raw: string | null): number | null {
 }
 
 // Deriva o tipo do evento a partir de payment_method + status/event. Liberal:
-// se não reconhecer, devolve o texto cru (nada se perde; a gente corrige depois).
+// Método de pagamento (pix|boleto) A PARTIR DO PAYLOAD. É a peça que NÃO dá pra
+// carimbar na URL: na Payt, "gerado" é um evento só pra pix e boleto (idem
+// "expirado"), então o método tem que vir do corpo. Liberal nos caminhos.
+function metodoDoPayload(g: (p: string) => unknown): "pix" | "boleto" | null {
+  const method = (pick(g, "payment_method", "transaction.payment_method", "data.payment_method", "method", "payment_type") ?? "").toLowerCase();
+  if (/pix/.test(method)) return "pix";
+  if (/boleto|bank_slip|billet/.test(method)) return "boleto";
+  return null;
+}
+
+// Derivação COMPLETA (método + estágio) só do payload — usada como fallback
+// quando a URL não carimba nem tipo nem evento. Se não reconhecer, devolve o
+// texto cru (nada se perde; a gente corrige pelo log).
 function derivarTipo(g: (p: string) => unknown): string {
-  const method = (pick(g, "payment_method", "transaction.payment_method", "data.payment_method", "method") ?? "").toLowerCase();
   const status = (pick(g, "status", "transaction.status", "data.status") ?? "").toLowerCase();
   const event = (pick(g, "event", "type", "event_type", "data.event") ?? "").toLowerCase();
 
@@ -70,18 +81,12 @@ function derivarTipo(g: (p: string) => unknown): string {
 
   const expirado = /expired|overdue|expirado|vencid/.test(status) || /expired|overdue/.test(event);
   const gerado = /waiting|pending|created|generated|gerad|aguard/.test(status) || /created|generated/.test(event);
+  const metodo = metodoDoPayload(g);
 
-  const isPix = /pix/.test(method) || /pix/.test(event);
-  const isBoleto = /boleto|bank_slip|billet/.test(method) || /boleto/.test(event);
+  if (metodo && expirado) return `${metodo}_expirado`;
+  if (metodo && gerado) return `${metodo}_gerado`;
 
-  if (isPix && expirado) return "pix_expirado";
-  if (isPix && gerado) return "pix_gerado";
-  if (isBoleto && expirado) return "boleto_expirado";
-  if (isBoleto && gerado) return "boleto_gerado";
-
-  // Não reconhecido: guarda o cru pra não perder o evento (visível no dashboard
-  // como tipo "estranho" e no log com o payload inteiro).
-  return `desconhecido:${method || "?"}:${status || event || "?"}`;
+  return `desconhecido:${metodo ?? "?"}:${status || event || "?"}`;
 }
 
 Deno.serve(async (req) => {
@@ -101,15 +106,27 @@ Deno.serve(async (req) => {
   console.log("payt-webhook payload:", raw.slice(0, 4000));
 
   const g = reader(body);
-  // Tipo pode vir CARIMBADO na URL (?tipo=pix_expirado) — o jeito à prova de erro
-  // quando há um webhook da Payt por evento. Se não vier (ou vier inválido),
-  // deriva do payload. Assim funciona tanto "separado com tipo na URL" quanto
-  // "tudo num webhook só".
+  // Precedência do tipo:
+  //  1) ?tipo=<completo> — carimbo total. Só pro carrinho_abandonado, que não
+  //     tem ambiguidade de método.
+  //  2) ?evento=gerado|expirado — o ESTÁGIO vem da URL (na Payt "gerado" é um
+  //     evento só pra pix e boleto; idem "expirado"), e o MÉTODO sai do payload.
+  //  3) sem nada — deriva método+estágio do payload (fallback).
   const TIPOS_VALIDOS = new Set([
     "pix_gerado", "pix_expirado", "boleto_gerado", "boleto_expirado", "carrinho_abandonado",
   ]);
   const tipoParam = (url.searchParams.get("tipo") ?? "").trim().toLowerCase();
-  const tipo = TIPOS_VALIDOS.has(tipoParam) ? tipoParam : derivarTipo(g);
+  const eventoHint = (url.searchParams.get("evento") ?? "").trim().toLowerCase(); // gerado|expirado
+  let tipo: string;
+  if (TIPOS_VALIDOS.has(tipoParam)) {
+    tipo = tipoParam;
+  } else if (eventoHint === "gerado" || eventoHint === "expirado") {
+    const metodo = metodoDoPayload(g);
+    // Sem método no payload: marca claro (o log mostra o corpo pra achar o campo).
+    tipo = metodo ? `${metodo}_${eventoHint}` : `desconhecido:${eventoHint}:sem_metodo`;
+  } else {
+    tipo = derivarTipo(g);
+  }
   const nome = pick(g, "customer.name", "transaction.customer.name", "data.customer.name", "name", "buyer.name");
   const telefone = onlyDigits(pick(g, "customer.phone", "transaction.customer.phone", "data.customer.phone", "phone", "buyer.phone", "whatsapp"));
   const valor = toReais(pick(g, "amount", "value", "total", "transaction.amount", "data.amount", "price"));
