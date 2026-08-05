@@ -1,4 +1,6 @@
 .env
+.env.supabase
+.env.local
 service_account.json
 __pycache__/
 *.pyc
