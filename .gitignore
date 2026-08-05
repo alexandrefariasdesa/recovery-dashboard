@@ -2,6 +2,7 @@
 .env.supabase
 .env.local
 service_account.json
+db/PAYT_WEBHOOK_URLS.txt
 __pycache__/
 *.pyc
 .streamlit/secrets.toml

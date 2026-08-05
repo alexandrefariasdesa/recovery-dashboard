@@ -101,7 +101,15 @@ Deno.serve(async (req) => {
   console.log("payt-webhook payload:", raw.slice(0, 4000));
 
   const g = reader(body);
-  const tipo = derivarTipo(g);
+  // Tipo pode vir CARIMBADO na URL (?tipo=pix_expirado) — o jeito à prova de erro
+  // quando há um webhook da Payt por evento. Se não vier (ou vier inválido),
+  // deriva do payload. Assim funciona tanto "separado com tipo na URL" quanto
+  // "tudo num webhook só".
+  const TIPOS_VALIDOS = new Set([
+    "pix_gerado", "pix_expirado", "boleto_gerado", "boleto_expirado", "carrinho_abandonado",
+  ]);
+  const tipoParam = (url.searchParams.get("tipo") ?? "").trim().toLowerCase();
+  const tipo = TIPOS_VALIDOS.has(tipoParam) ? tipoParam : derivarTipo(g);
   const nome = pick(g, "customer.name", "transaction.customer.name", "data.customer.name", "name", "buyer.name");
   const telefone = onlyDigits(pick(g, "customer.phone", "transaction.customer.phone", "data.customer.phone", "phone", "buyer.phone", "whatsapp"));
   const valor = toReais(pick(g, "amount", "value", "total", "transaction.amount", "data.amount", "price"));
