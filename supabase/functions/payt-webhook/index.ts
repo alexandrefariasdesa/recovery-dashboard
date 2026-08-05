@@ -116,33 +116,10 @@ Deno.serve(async (req) => {
   const body = (Array.isArray(parsed) ? (parsed[0] ?? {}) : parsed) as Record<string, unknown>;
 
   const g = reader(body);
-  // Precedência do tipo:
-  //  1) ?tipo=<completo> — carimbo total. Só pro carrinho_abandonado, que não
-  //     tem ambiguidade de método.
-  //  2) ?evento=gerado|expirado — o ESTÁGIO vem da URL (na Payt "gerado" é um
-  //     evento só pra pix e boleto; idem "expirado"), e o MÉTODO sai do payload.
-  //  3) sem nada — deriva método+estágio do payload (fallback).
-  const TIPOS_VALIDOS = new Set([
-    "pix_gerado", "pix_expirado", "boleto_gerado", "boleto_expirado", "carrinho_abandonado",
-  ]);
   const tipoParam = (url.searchParams.get("tipo") ?? "").trim().toLowerCase();
-  const eventoHint = (url.searchParams.get("evento") ?? "").trim().toLowerCase(); // gerado|expirado
-  let tipo: string;
-  if (TIPOS_VALIDOS.has(tipoParam)) {
-    tipo = tipoParam;
-  } else if (eventoHint === "gerado" || eventoHint === "expirado") {
-    const metodo = metodoDoPayload(g);
-    // Sem método no payload: marca claro (o log mostra o corpo pra achar o campo).
-    tipo = metodo ? `${metodo}_${eventoHint}` : `desconhecido:${eventoHint}:sem_metodo`;
-  } else {
-    tipo = derivarTipo(g);
-  }
+  const eventoHint = (url.searchParams.get("evento") ?? "").trim().toLowerCase(); // gerado|expirado|aprovado
 
-  // Só loga o payload inteiro quando NÃO resolveu o tipo — pra achar o campo
-  // sem encher o log em todo evento de alto volume.
-  if (tipo.startsWith("desconhecido")) {
-    console.error("payt-webhook: tipo não resolvido:", tipo, "| payload:", raw.slice(0, 4000));
-  }
+  // Campos comuns aos dois destinos (recovery_events e compras).
   const nome = pick(g, "customer.name", "transaction.customer.name", "data.customer.name", "name", "buyer.name");
   const telefone = onlyDigits(pick(g, "customer.phone", "transaction.customer.phone", "data.customer.phone", "phone", "buyer.phone", "whatsapp"));
   // Payt: valor em CENTAVOS em transaction.total_price / product.price.
@@ -150,28 +127,68 @@ Deno.serve(async (req) => {
   const valor = (centavos != null && !isNaN(Number(centavos)))
     ? Number(centavos) / 100
     : toReais(pick(g, "amount", "value", "total"));
-  const eventoEm = parsePaytDate(
-    pick(g, "transaction.created_at", "started_at", "created_at", "transaction.updated_at", "updated_at"),
-  );
 
   if (!telefone) {
-    // Sem telefone não dá pra cruzar conversão. Loga e aceita (200) pra Payt não
-    // ficar reenviando durante a descoberta — o payload no log resolve o mapa.
+    // Sem telefone não dá pra cruzar conversão. Aceita (200) pra Payt não reenviar.
     console.error("payt-webhook: sem telefone no payload:", raw.slice(0, 2000));
-    return json({ ok: true, stored: false, reason: "no_phone", tipo });
+    return json({ ok: true, stored: false, reason: "no_phone" });
   }
 
   const admin = createClient(SUPABASE_URL, SERVICE_KEY);
-  const { error } = await admin.from("recovery_events").insert({
+
+  // ── COMPRA APROVADA → tabela `compras` (o lado da conversão) ──────────────
+  if (eventoHint === "aprovado") {
+    const compraEm = parsePaytDate(
+      pick(g, "transaction.updated_at", "transaction.created_at", "updated_at", "created_at", "started_at"),
+    );
+    const transactionId = pick(g, "transaction_id", "transaction.transaction_id", "id");
+    const produto = pick(g, "product.name", "transaction.product.name", "product_name");
+    const compraRow: Record<string, unknown> = {
+      compra_em: isNaN(compraEm.getTime()) ? new Date().toISOString() : compraEm.toISOString(),
+      nome, telefone, valor, produto, transaction_id: transactionId,
+    };
+    // Upsert por transaction_id: reenvio da Payt não duplica a compra (o que
+    // inflaria a conversão). Sem transaction_id, insere direto.
+    const { error } = transactionId
+      ? await admin.from("compras").upsert(compraRow, { onConflict: "transaction_id", ignoreDuplicates: true })
+      : await admin.from("compras").insert(compraRow);
+    if (error) { console.error("payt-webhook compras:", error.message); return json({ error: error.message }, 500); }
+    return json({ ok: true, stored: true, destino: "compras", telefone, valor });
+  }
+
+  // ── EVENTO DE RECUPERAÇÃO → tabela `recovery_events` ──────────────────────
+  //  1) ?tipo=<completo> — carrinho_abandonado (sem ambiguidade de método).
+  //  2) ?evento=gerado|expirado — estágio na URL, método do payload.
+  //  3) sem nada — deriva do payload.
+  const TIPOS_VALIDOS = new Set([
+    "pix_gerado", "pix_expirado", "boleto_gerado", "boleto_expirado", "carrinho_abandonado",
+  ]);
+  let tipo: string;
+  if (TIPOS_VALIDOS.has(tipoParam)) {
+    tipo = tipoParam;
+  } else if (eventoHint === "gerado" || eventoHint === "expirado") {
+    const metodo = metodoDoPayload(g);
+    tipo = metodo ? `${metodo}_${eventoHint}` : `desconhecido:${eventoHint}:sem_metodo`;
+  } else {
+    tipo = derivarTipo(g);
+  }
+  if (tipo.startsWith("desconhecido")) {
+    console.error("payt-webhook: tipo não resolvido:", tipo, "| payload:", raw.slice(0, 4000));
+  }
+
+  const eventoEm = parsePaytDate(
+    pick(g, "transaction.created_at", "started_at", "created_at", "transaction.updated_at", "updated_at"),
+  );
+  const row: Record<string, unknown> = {
     evento_em: isNaN(eventoEm.getTime()) ? new Date().toISOString() : eventoEm.toISOString(),
-    tipo,
-    nome,
-    telefone,
-    valor,
-  });
+    tipo, nome, telefone, valor,
+  };
+  // Auto-diagnóstico: tipo não resolvido guarda o payload cru (casos raros).
+  if (tipo.startsWith("desconhecido")) row.raw = body;
+
+  const { error } = await admin.from("recovery_events").insert(row);
   if (error) {
     console.error("payt-webhook: insert falhou:", error.message);
-    // 500 faz a Payt reenviar — bom pra não perder o evento por erro transitório.
     return json({ error: error.message }, 500);
   }
 
