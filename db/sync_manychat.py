@@ -44,9 +44,17 @@ def load_env(path):
 
 
 ENV = {**load_env(os.path.join(ROOT, ".env")), **load_env(os.path.join(ROOT, ".env.supabase")), **os.environ}
-SB_URL = ENV["SB_URL"].rstrip("/")
-SB_KEY = ENV["SB_SERVICE_KEY"]
-SPREADSHEET_ID = ENV["SPREADSHEET_ID"]
+
+
+def clean(v):
+    # Tira BOM/aspas/espaços — secrets colados às vezes vêm com ﻿, e header
+    # HTTP com BOM estoura UnicodeEncodeError latin-1.
+    return str(v).strip().strip('"').strip("'").lstrip("﻿").strip()
+
+
+SB_URL = clean(ENV["SB_URL"]).rstrip("/")
+SB_KEY = clean(ENV["SB_SERVICE_KEY"])
+SPREADSHEET_ID = clean(ENV["SPREADSHEET_ID"])
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
 
