@@ -1,0 +1,40 @@
+name: Sync ManyChat - Sheets para Postgres
+
+# Fecha o "live-gap": os Cloudflare Workers gravam os eventos de ManyChat SO no
+# Google Sheets, e o dashboard (com USE_POSTGRES=1) le do Postgres. Este job traz
+# as linhas novas do Sheets pro banco de tempos em tempos. Incremental por cursor
+# (tabela sync_state) — nao duplica. Nao envia nada, nao toca no Make.
+#
+# Pre-requisitos (Settings > Secrets and variables > Actions):
+#   GCP_SA_JSON      = conteudo do service_account.json (ja existe p/ o aula-dispatch)
+#   SB_SERVICE_KEY   = service_role key do projeto Supabase do recovery  <-- ADICIONAR
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # a cada 15 min
+  workflow_dispatch: {}       # botao "Run workflow" p/ rodar manual
+
+concurrency:
+  group: manychat-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Instala dependencias
+        run: pip install "gspread>=6.0.0" "google-auth>=2.28.0"
+
+      - name: Sync incremental ManyChat -> Postgres
+        env:
+          GCP_SA_JSON: ${{ secrets.GCP_SA_JSON }}
+          SB_URL: "https://ztoghqjnctoreozoyvhh.supabase.co"
+          SB_SERVICE_KEY: ${{ secrets.SB_SERVICE_KEY }}
+          SPREADSHEET_ID: "1cZI3Hzth-UmUNL9gIX67IyJj4yJqAMY2Z0BJQ4iOZOk"
+        run: python db/sync_manychat.py
