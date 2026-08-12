@@ -45,7 +45,28 @@ const SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 // Etapas do funil (recebeu→entrou→engajou), iguais pros 4 fluxos da Luiza.
 // `fluxo` é livre (uma automação por fluxo); só validamos a etapa pra um typo
 // não furar o funil.
-const VALID_ETAPAS = new Set(['recebeu', 'entrou', 'engajou']);
+//
+// O fluxo `disparo_venda` (disparo via API pra venda de produto) tem um funil
+// próprio, com bifurcação depois do clique:
+//   recebeu → clicou → [calculando | sentindo] → {braço}_respondeu
+//     → {braço}_pitch_1 → {braço}_pitch_2 → {braço}_pitch_3
+const VALID_ETAPAS = new Set([
+  'recebeu',
+  'entrou',
+  'engajou',
+  // funil disparo_venda
+  'clicou',
+  'calculando',
+  'sentindo',
+  'calculando_respondeu',
+  'calculando_pitch_1',
+  'calculando_pitch_2',
+  'calculando_pitch_3',
+  'sentindo_respondeu',
+  'sentindo_pitch_1',
+  'sentindo_pitch_2',
+  'sentindo_pitch_3',
+]);
 
 export default {
   async fetch(request, env, ctx) {
