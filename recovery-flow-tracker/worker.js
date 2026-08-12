@@ -2,45 +2,41 @@
  * recovery-flow-tracker — Cloudflare Worker
  * =============================================================================
  * Registra os eventos do funil de cada FLUXO do ManyChat (pix/boleto gerado,
- * pix/boleto expirado, carrinho abandonado, boas-vindas) e grava UMA linha na
- * aba `eventos_manychat` da planilha do dashboard.
+ * pix/boleto expirado, carrinho abandonado, boas-vindas, disparo_venda) e grava
+ * UMA linha na tabela `manychat_eventos` do Postgres (Supabase) via PostgREST.
  *
- * Funil medido (3 etapas), por fluxo:
+ * (Até 2026-08-12 gravava na aba `eventos_manychat` do Google Sheets; a
+ * planilha foi aposentada como intermediária — o dashboard lê do Postgres.)
+ *
+ * Funil clássico (3 etapas), por fluxo:
  *   recebeu  → a pessoa recebeu o fluxo
  *   entrou   → clicou no botão de entrada
  *   engajou  → clicou no conteúdo / avançou no fluxo
  *
+ * Funil do disparo de venda (fluxo `disparo_venda`), com bifurcação:
+ *   recebeu → clicou → [calculando | sentindo] → {braço}_respondeu
+ *     → {braço}_pitch_1 → {braço}_pitch_2 → {braço}_pitch_3
+ *
  * Cada etapa é um tijolo "External Request (POST)" no fluxo do ManyChat:
- *   POST https://<worker>/event?token=SECRET&fluxo=<slug>&etapa=<recebeu|entrou|engajou>
+ *   POST https://<worker>/event?token=SECRET&fluxo=<slug>&etapa=<etapa>
  *   body: Full Contact Data → traz { phone, id } (1 clique, sem montar JSON)
- *     └─ Worker → Google Sheets API (values:append) → aba eventos_manychat
  *
  * `fluxo` e `etapa` vão na QUERY (caminho fácil no ManyChat); o corpo fica só
  * com phone/id. Copie o mesmo bloco entre etapas trocando só o &etapa=, e entre
  * fluxos trocando só o &fluxo=.
  *
- * Auth Google: service account (JWT RS256 → access token). É o MESMO service
- * account do dashboard (service_account.json) — a planilha já está
- * compartilhada com ele como Editor (mesma planilha de cliques_manychat).
- *
  * Resposta rápida + escrita em background: o Worker responde 200 pro
- * ManyChat assim que valida o payload, ANTES de escrever no Sheets. A escrita
- * roda em `ctx.waitUntil` com retry/backoff em caso de 429 (cota de escrita
- * do Sheets API é global por service account — compartilhada com outros
- * Workers). Isso garante que uma falha/lentidão do Sheets NUNCA trava a
- * automação do ManyChat.
+ * ManyChat assim que valida o payload, ANTES de escrever no banco. A escrita
+ * roda em `ctx.waitUntil` com retry/backoff. Isso garante que uma falha/
+ * lentidão do banco NUNCA trava a automação do ManyChat.
  *
  * Secrets / vars (wrangler secret put / [vars] no wrangler.toml):
- *   SHEET_ID         — id da planilha (config.SPREADSHEET_ID do dashboard)
- *   SA_EMAIL         — client_email do service account
- *   SA_PRIVATE_KEY   — private_key do service account (PEM, com \n reais)
- *   SHARED_TOKEN     — segredo arbitrário; o ManyChat manda ?token=... igual
- *   TAB_NAME         — opcional, default "eventos_manychat"
+ *   SB_URL          — url do projeto Supabase (https://<ref>.supabase.co)
+ *   SB_SERVICE_KEY  — service_role key (grava direto, ignora RLS)
+ *   SHARED_TOKEN    — segredo arbitrário; o ManyChat manda ?token=... igual
+ *   TABLE_NAME      — opcional, default "manychat_eventos"
  * =============================================================================
  */
-
-const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 
 // Etapas do funil (recebeu→entrou→engajou), iguais pros 4 fluxos da Luiza.
 // `fluxo` é livre (uma automação por fluxo); só validamos a etapa pra um typo
@@ -71,7 +67,7 @@ const VALID_ETAPAS = new Set([
 export default {
   async fetch(request, env, ctx) {
     if (request.method === 'GET') {
-      return json({ ok: true, service: 'recovery-flow-tracker' });
+      return json({ ok: true, service: 'recovery-flow-tracker', sink: 'supabase' });
     }
     if (request.method !== 'POST') {
       return json({ error: 'method not allowed' }, 405);
@@ -113,11 +109,18 @@ export default {
     const ts = manausIso(new Date());
 
     // Responde 200 pro ManyChat IMEDIATAMENTE — a automação nunca deve travar
-    // por causa do rastreio. A escrita no Sheets (com retry em caso de 429 de
-    // cota) roda em background via waitUntil, fora do request/response.
+    // por causa do rastreio. A escrita no banco (com retry) roda em background
+    // via waitUntil, fora do request/response.
+    const row = {
+      evento_em: ts,
+      telefone: telefone || null,
+      subscriber_id: subscriberId || null,
+      fluxo,
+      etapa,
+    };
     ctx.waitUntil(
-      appendRowWithRetry(env, [ts, telefone, subscriberId, fluxo, etapa]).catch((err) => {
-        console.error('append failed (background):', err && err.stack ? err.stack : String(err));
+      insertRowWithRetry(env, row).catch((err) => {
+        console.error('insert failed (background):', err && err.stack ? err.stack : String(err));
       }),
     );
 
@@ -125,51 +128,40 @@ export default {
   },
 };
 
-// ── Google Sheets append (com retry pra absorver picos de tráfego) ───────────
+// ── Supabase PostgREST insert (com retry pra absorver instabilidade) ─────────
 
-// A cota de escrita do Sheets API (60/min) é GLOBAL por service account —
-// compartilhada com outros Workers (manychat-click-tracker, edital-flow-
-// tracker). Um fluxo de alto volume (ex: "recebeu" disparando em toda
-// mensagem) pode estourar isso sozinho. Retry com backoff absorve o pico sem
-// perder o evento nem travar quem está chamando.
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 600;
 
-async function appendRowWithRetry(env, row) {
-  let accessToken = await getAccessToken(env);
+async function insertRowWithRetry(env, row) {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      await appendRow(env, accessToken, row);
+      await insertRow(env, row);
       return;
     } catch (err) {
       const retryable = err && (err.status === 429 || err.status >= 500);
       if (!retryable || attempt === MAX_RETRIES) throw err;
-      // token expirado/inválido no meio dos retries — renova.
-      if (err.status === 401) accessToken = await getAccessToken(env);
       const delay = BASE_DELAY_MS * 2 ** attempt + Math.random() * 300;
       await sleep(delay);
     }
   }
 }
 
-async function appendRow(env, accessToken, row) {
-  const tab = env.TAB_NAME || 'eventos_manychat';
-  const range = encodeURIComponent(`${tab}!A:E`);
-  const endpoint =
-    `https://sheets.googleapis.com/v4/spreadsheets/${env.SHEET_ID}` +
-    `/values/${range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
-
-  const resp = await fetch(endpoint, {
+async function insertRow(env, row) {
+  const table = env.TABLE_NAME || 'manychat_eventos';
+  const resp = await fetch(`${env.SB_URL}/rest/v1/${table}`, {
     method: 'POST',
     headers: {
-      authorization: `Bearer ${accessToken}`,
+      apikey: env.SB_SERVICE_KEY,
+      authorization: `Bearer ${env.SB_SERVICE_KEY}`,
       'content-type': 'application/json',
+      prefer: 'return=minimal',
     },
-    body: JSON.stringify({ values: [row] }),
+    body: JSON.stringify(row),
   });
 
   if (!resp.ok) {
-    const err = new Error(`sheets ${resp.status}: ${await resp.text()}`);
+    const err = new Error(`postgrest ${resp.status}: ${await resp.text()}`);
     err.status = resp.status;
     throw err;
   }
@@ -177,58 +169,6 @@ async function appendRow(env, accessToken, row) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// ── OAuth: service account JWT (RS256) → access token ────────────────────────
-
-async function getAccessToken(env) {
-  const now = Math.floor(Date.now() / 1000);
-  const header = { alg: 'RS256', typ: 'JWT' };
-  const claim = {
-    iss: env.SA_EMAIL,
-    scope: SCOPE,
-    aud: TOKEN_URL,
-    iat: now,
-    exp: now + 3600,
-  };
-
-  const unsigned = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(claim))}`;
-  const key = await importPrivateKey(env.SA_PRIVATE_KEY);
-  const sigBuf = await crypto.subtle.sign(
-    'RSASSA-PKCS1-v1_5',
-    key,
-    new TextEncoder().encode(unsigned),
-  );
-  const jwt = `${unsigned}.${b64urlBytes(new Uint8Array(sigBuf))}`;
-
-  const resp = await fetch(TOKEN_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: jwt,
-    }),
-  });
-  if (!resp.ok) {
-    throw new Error(`token ${resp.status}: ${await resp.text()}`);
-  }
-  return (await resp.json()).access_token;
-}
-
-async function importPrivateKey(pem) {
-  const clean = pem
-    .replace(/\\n/g, '\n')
-    .replace('-----BEGIN PRIVATE KEY-----', '')
-    .replace('-----END PRIVATE KEY-----', '')
-    .replace(/\s/g, '');
-  const der = Uint8Array.from(atob(clean), (c) => c.charCodeAt(0));
-  return crypto.subtle.importKey(
-    'pkcs8',
-    der.buffer,
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -245,16 +185,6 @@ function manausIso(date) {
     `${m.getUTCFullYear()}-${p(m.getUTCMonth() + 1)}-${p(m.getUTCDate())}` +
     `T${p(m.getUTCHours())}:${p(m.getUTCMinutes())}:${p(m.getUTCSeconds())}-04:00`
   );
-}
-
-function b64url(str) {
-  return b64urlBytes(new TextEncoder().encode(str));
-}
-
-function b64urlBytes(bytes) {
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function json(obj, status = 200) {

@@ -14,16 +14,11 @@ def _pct(parte: int, todo: int) -> str:
 
 
 def render_venda_funil_tab(data: dict) -> None:
-    geral: dict = data.get("geral", {})
-    bracos: dict = data.get("bracos", {})
-    tabela: pd.DataFrame = data.get("tabela", pd.DataFrame())
+    fluxos: dict = data.get("fluxos", {})
 
-    recebeu = int(geral.get("recebeu", 0))
-    clicou = int(geral.get("clicou", 0))
-
-    if recebeu == 0 and clicou == 0 and (tabela is None or tabela.empty):
+    if not fluxos:
         st.info(
-            "Nenhum evento do fluxo `disparo_venda` ainda. Confirme que os "
+            "Nenhum evento de funil de venda no período. Confirme que os "
             "tijolos de External Request estão configurados no fluxo do "
             "ManyChat e que o Worker `recovery-flow-tracker` está no ar."
         )
@@ -33,8 +28,24 @@ def render_venda_funil_tab(data: dict) -> None:
         "Funil do **disparo via API pra venda de produto**, medido dentro do "
         "ManyChat: **Recebeu** → **Clicou** → escolha entre **Calculando** ou "
         "**Sentindo** → **Respondeu** → **Pitch 1 → 2 → 3** em cada braço. "
-        "Pessoas distintas por etapa (subscriber_id, fallback telefone)."
+        "Pessoas distintas por etapa (subscriber_id, fallback telefone). "
+        "O fluxo é detectado pelo `&fluxo=` dos tijolos."
     )
+
+    slugs = list(fluxos.keys())
+    if len(slugs) > 1:
+        escolha = st.selectbox("Fluxo (slug do disparo)", slugs, index=0, key="venda_funil_fluxo_sel")
+    else:
+        escolha = slugs[0]
+        st.caption(f"Fluxo: `{escolha}`")
+
+    dados = fluxos[escolha]
+    geral: dict = dados.get("geral", {})
+    bracos: dict = dados.get("bracos", {})
+    tabela: pd.DataFrame = dados.get("tabela", pd.DataFrame())
+
+    recebeu = int(geral.get("recebeu", 0))
+    clicou = int(geral.get("clicou", 0))
 
     # ── Topo do funil (comum aos 2 braços) ──────────────────────────────────
     escolheu_calc = int(bracos.get("calculando", {}).get("escolheu", 0))

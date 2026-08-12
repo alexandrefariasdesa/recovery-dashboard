@@ -2,8 +2,7 @@ name = "recovery-flow-tracker"
 main = "worker.js"
 compatibility_date = "2025-01-01"
 
-# Vars não-secretas. Os secrets (SHEET_ID, SA_EMAIL, SA_PRIVATE_KEY, SHARED_TOKEN)
-# vão via `wrangler secret put` (o deploy.sh faz isso) — NÃO coloque aqui, esse
-# arquivo é commitado.
+# Vars não-secretas. Os secrets (SB_URL, SB_SERVICE_KEY, SHARED_TOKEN)
+# vão via `wrangler secret put` — NÃO coloque aqui, esse arquivo é commitado.
 [vars]
-TAB_NAME = "eventos_manychat"
+TABLE_NAME = "manychat_eventos"
