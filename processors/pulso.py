@@ -301,10 +301,86 @@ def _mix_eventos() -> pd.DataFrame:
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _eventos_por_tipo() -> pd.DataFrame:
+    """Silêncio por TIPO de evento, não pela tabela.
+
+    A tabela `recovery_events` recebe os quatro tipos, e o `pix_gerado` sozinho
+    é ~150 linhas/dia — então ela nunca fica quieta, mesmo que um tipo inteiro
+    tenha parado de chegar. O cartão da fonte, olhando só o `max(evento_em)`,
+    mostra "de pé" enquanto uma origem morre.
+
+    O limite de cada tipo não é chutado: é o **p99 dos intervalos observados nos
+    últimos 30 dias**. Cada fonte tem o próprio ritmo (o carrinho chega o dia
+    todo, o expirado é esparso), e comparar com o próprio histórico é a única
+    régua que não precisa de manutenção. Piso de 2h pra não gritar com fonte
+    rápida que respirou.
+    """
+    try:
+        return _read("""
+            with ev as (
+                select tipo, evento_em,
+                       lag(evento_em) over (partition by tipo order by evento_em) as ant
+                from recovery_events
+                where evento_em >= now() - interval '30 days'
+            ),
+            ritmo as (
+                select tipo,
+                       percentile_cont(0.99) within group (
+                           order by extract(epoch from (evento_em - ant)) / 3600.0
+                       ) as p99_h,
+                       count(*) as intervalos
+                from ev where ant is not null
+                group by tipo
+            )
+            select e.tipo,
+                   max(e.evento_em) as ultima,
+                   count(*) filter (where e.evento_em >= now() - interval '24 hours') as d1,
+                   count(*) filter (where e.evento_em >= now() - interval '7 days') as d7,
+                   count(*) as d30,
+                   r.p99_h, coalesce(r.intervalos, 0) as intervalos
+            from recovery_events e
+            left join ritmo r on r.tipo = e.tipo
+            where e.evento_em >= now() - interval '30 days'
+            group by e.tipo, r.p99_h, r.intervalos
+            order by d7 desc, e.tipo
+        """)
+    except Exception:
+        return pd.DataFrame()
+
+
+def _classificar_tipos(df: pd.DataFrame) -> pd.DataFrame:
+    """Traduz silêncio + ritmo próprio em veredito, sem inventar número redondo."""
+    if df.empty:
+        return df
+    df = df.copy()
+    df["horas"] = df["ultima"].map(_horas_desde)
+    # Menos de 30 intervalos em 30 dias é pouco pra ter ritmo — não dá pra
+    # acusar atraso com essa base, então a fonte fica em observação.
+    df["limite_h"] = df.apply(
+        lambda r: max(float(r["p99_h"]), 2.0)
+        if pd.notna(r["p99_h"]) and r["intervalos"] >= 30 else None,
+        axis=1,
+    )
+
+    def estado(r):
+        if r["d7"] == 0:
+            return "parado"          # não chega há uma semana: fonte desligada
+        if r["limite_h"] is None:
+            return "pouco dado"
+        if r["horas"] is None:
+            return "mudo"
+        return "ok" if r["horas"] <= r["limite_h"] else "atraso"
+
+    df["estado"] = df.apply(estado, axis=1)
+    return df
+
+
 def build_pulso() -> dict:
     """Snapshot da operação. Não recebe período: 'o que está rodando' é agora."""
     fontes = _fontes()
     motores = _motores()
+    tipos = _classificar_tipos(_eventos_por_tipo())
 
     alertas = []
     for _, f in fontes.iterrows():
@@ -317,6 +393,21 @@ def build_pulso() -> dict:
             alertas.append(f"**{f['titulo']}**: a consulta falhou — `{f['erro']}`.")
         elif f["estado"] == "mudo":
             alertas.append(f"**{f['titulo']}** nunca recebeu uma linha.")
+
+    # Um tipo pode morrer dentro de uma tabela que continua crescendo.
+    for _, t in (tipos.iterrows() if not tipos.empty else []):
+        if t["estado"] == "atraso":
+            alertas.append(
+                f"Evento **{t['tipo']}** sem chegar há {_humano(t['horas'])} — "
+                f"o normal desta origem é no máximo {_humano(t['limite_h'])} "
+                f"(p99 de 30 dias). A tabela segue recebendo os outros tipos."
+            )
+        elif t["estado"] == "parado":
+            alertas.append(
+                f"Evento **{t['tipo']}** não chega há mais de 7 dias "
+                f"(último em {_quando_br(t['ultima'])}). Se foi de propósito, "
+                "vale desativar o tipo no motor pra não ficar peça morta."
+            )
 
     # A colisão que custa caro: o motor mandando de verdade num tipo em que a
     # automação de fora também continua mandando — a pessoa recebe duas vezes.
@@ -340,6 +431,7 @@ def build_pulso() -> dict:
 
     return {
         "fontes": fontes,
+        "tipos": tipos,
         "motores": motores,
         "crons": crons,
         "disparos": _disparos_recentes(),
@@ -348,6 +440,15 @@ def build_pulso() -> dict:
         "alertas": alertas,
         "lido_em": datetime.now(),
     }
+
+
+def _quando_br(ts) -> str:
+    if ts is None or pd.isna(ts):
+        return "nunca"
+    ts = pd.Timestamp(ts)
+    if ts.tzinfo is not None:
+        ts = ts.tz_convert("America/Sao_Paulo").tz_localize(None)
+    return ts.strftime("%d/%m %H:%M")
 
 
 def _humano(horas: float | None) -> str:

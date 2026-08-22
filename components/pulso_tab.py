@@ -24,6 +24,14 @@ _ROTULO_ESTADO = {
     "erro": "erro",
 }
 
+_ESTADO_TIPO = {
+    "ok": "chegando",
+    "atraso": "atrasado",
+    "parado": "parado (7d+)",
+    "pouco dado": "pouco histórico",
+    "mudo": "sem dado",
+}
+
 _FORA_LABEL = {
     "ativo": "ainda manda",
     "pausado": "pausado",
@@ -101,6 +109,33 @@ def render_pulso_tab(data: dict) -> None:
             ],
         ))
     st.markdown(f"<div class='op-pulso'>{''.join(cartoes)}</div>", unsafe_allow_html=True)
+
+    # ── Um nível abaixo: o tipo dentro da tabela ─────────────────────────────
+    # `recovery_events` é uma fonte só no cartão, mas quatro origens diferentes
+    # por dentro. Como o pix_gerado sozinho segura o relógio da tabela, um tipo
+    # inteiro pode parar sem o cartão mudar de cor — por isso o detalhe.
+    tipos: pd.DataFrame = data.get("tipos", pd.DataFrame())
+    if not tipos.empty:
+        with st.expander("Eventos de recuperação, por tipo — quem ainda chega", expanded=False):
+            vista = tipos.copy()
+            vista["silencio"] = vista["horas"].map(_humano)
+            vista["normal"] = vista["limite_h"].map(
+                lambda h: f"até {_humano(h)}" if pd.notna(h) else "—")
+            vista["ultima"] = vista["ultima"].map(_quando)
+            vista["estado"] = vista["estado"].map(_ESTADO_TIPO)
+            st.dataframe(
+                vista[["tipo", "estado", "silencio", "normal", "ultima", "d1", "d7", "d30"]]
+                .rename(columns={
+                    "tipo": "Tipo", "estado": "Estado", "silencio": "Sem chegar há",
+                    "normal": "Normal desta origem", "ultima": "Último",
+                    "d1": "24h", "d7": "7d", "d30": "30d",
+                }),
+                hide_index=True, use_container_width=True,
+            )
+            st.caption(
+                "*Normal desta origem* é o p99 dos intervalos dos últimos 30 dias — "
+                "cada tipo é comparado com o próprio ritmo, não com um número fixo."
+            )
 
     st.divider()
 
