@@ -6,12 +6,17 @@ Navegação em páginas (`st.navigation`), não abas. A diferença não é esté
 painel rodava as oito consultas pra mostrar uma. Com páginas, só a que está
 aberta consulta o banco.
 
-A ordem dos grupos é a ordem de quem chega no painel querendo saber algo:
+O menu espelha o NEGÓCIO, não a tecnologia. Ele já foi agrupado por sistema
+(ManyChat, Motores) e isso partia o mesmo funil em duas seções: a boas-vindas
+aparecia em "Motores", o clique dela em "ManyChat", e ninguém conseguia ler o
+funil inteiro numa tela. Agora:
 
-    OPERAÇÃO    as peças estão de pé?          (não depende de período)
-    RESULTADO   quanto rendeu no período?
-    MANYCHAT    onde as pessoas travam no fluxo?
-    MOTORES     o que cada motor está fazendo — inclusive os desligados
+    VISÃO GERAL  como foi o período, funil a funil, com o dinheiro na frente
+    FUNIS        um funil por página: resultado e detalhe no mesmo lugar
+    OPERAÇÃO     as peças estão de pé? o que cada motor está fazendo?
+
+A Visão Geral é a porta de entrada e leva pro detalhe; as páginas de OPERAÇÃO
+respondem "está quebrado?", que é outra pergunta e por isso outra seção.
 
 Cada página é uma função sem argumento (é o que `st.Page` aceita); o período
 escolhido na barra lateral chega por fechamento, montado uma vez em `_pagina`.
@@ -77,6 +82,33 @@ def _desligado(titulo: str, desde: str, motivo: str, religar: str):
             "enquanto a automação estiver parada."
         )
     return aviso
+
+
+# ── Visão geral ──────────────────────────────────────────────────────────────
+def _visao_geral():
+    from processors.visao_geral import build_visao_geral
+    from components.visao_geral_tab import render_visao_geral_tab
+    return _pagina(build_visao_geral, render_visao_geral_tab,
+                   "Lendo o resultado de cada funil...")()
+
+
+# ── Funis ────────────────────────────────────────────────────────────────────
+def _aquisicao():
+    from processors.funis import build_aquisicao
+    from components.funis_tab import render_aquisicao
+    return _pagina(build_aquisicao, render_aquisicao, "Carregando aquisição...")()
+
+
+def _boas_vindas():
+    from processors.funis import build_boas_vindas
+    from components.funis_tab import render_boas_vindas
+    return _pagina(build_boas_vindas, render_boas_vindas, "Carregando boas-vindas...")()
+
+
+def _grupo_funil():
+    from processors.funis import build_grupo
+    from components.funis_tab import render_grupo
+    return _pagina(build_grupo, render_grupo, "Carregando entradas no grupo...")()
 
 
 # ── Operação ─────────────────────────────────────────────────────────────────
@@ -149,7 +181,7 @@ def _convite_aula():
     )()
 
 
-def _grupo():
+def _segunda_chamada():
     from processors.group_followup import build_group_followup_dataframe
     from components.group_followup_tab import render_group_followup_tab
 
@@ -182,23 +214,31 @@ def _grupo():
 
 
 st.navigation({
-    "Operação": [
+    "Visão geral": [
         # Sem `url_path`: a página padrão mora na raiz, e declarar um caminho
         # pra ela faz o Streamlit responder "Page not found" no link direto.
-        st.Page(_pulso, title="Pulso", default=True),
+        st.Page(_visao_geral, title="Visão geral", default=True),
     ],
-    "Resultado": [
-        st.Page(_recuperacoes, title="Recuperações", url_path="recuperacoes"),
+    # Um funil por página, na ordem em que a cliente passa por eles: compra,
+    # é recuperada se não pagou, recebe as boas-vindas, entra no grupo, leva
+    # upsell, é convidada pra aula.
+    "Funis": [
+        st.Page(_aquisicao, title="Aquisição", url_path="aquisicao"),
+        st.Page(_recuperacoes, title="Recuperação", url_path="recuperacao"),
+        st.Page(_boas_vindas, title="Boas-vindas", url_path="boas-vindas"),
+        st.Page(_grupo_funil, title="Grupo", url_path="grupo"),
         st.Page(_upsell, title="Upsell", url_path="upsell"),
+        st.Page(_convite_aula, title="Aula", url_path="aula"),
     ],
-    "ManyChat": [
-        st.Page(_efetividade, title="Efetividade", url_path="efetividade"),
-        st.Page(_funil_etapas, title="Funil de etapas", url_path="funil-etapas"),
-        st.Page(_funil_venda, title="Funil de venda", url_path="funil-venda"),
-    ],
-    "Motores": [
-        st.Page(_motor_recuperacao, title="Recuperação", url_path="motor-recuperacao"),
-        st.Page(_convite_aula, title="Convite da aula", url_path="convite-aula"),
-        st.Page(_grupo, title="Grupo", url_path="grupo"),
+    # "Está quebrado?" é outra pergunta que "quanto rendeu?" — por isso as peças
+    # de diagnóstico ficam separadas dos funis, e não misturadas neles.
+    "Operação": [
+        st.Page(_pulso, title="Pulso", url_path="pulso"),
+        st.Page(_motor_recuperacao, title="Motores", url_path="motores"),
+        st.Page(_efetividade, title="Mensagens", url_path="efetividade"),
+        st.Page(_funil_etapas, title="Etapas do fluxo", url_path="funil-etapas"),
+        st.Page(_funil_venda, title="Disparo de venda", url_path="funil-venda"),
+        st.Page(_segunda_chamada, title="2ª chamada (histórico)",
+                url_path="segunda-chamada"),
     ],
 }).run()

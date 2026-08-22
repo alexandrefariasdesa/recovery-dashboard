@@ -158,6 +158,60 @@ h3 {{ font-size: 1.05rem !important; font-weight: 600 !important; }}
 .op-peca-linha b {{ color: var(--tinta); font-weight: 600; font-family: var(--mono); }}
 .op-peca-quem {{ font-size: .74rem; opacity: .85; }}
 
+/* ── Visão geral: um cartão por funil ──────────────────────────────────────
+   Mesma família do .op-peca (tarja de estado à esquerda, rótulo em mono), com
+   dois ajustes: o número é grande de verdade — é o que a pessoa lê de longe — e
+   o cartão respira mais, porque aqui são seis, não doze. */
+.vg-grade {{
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr));
+  gap: .8rem; margin: .4rem 0 .2rem;
+}}
+.vg-cartao {{
+  background: var(--superficie); border: 1px solid var(--linha);
+  border-left: 3px solid var(--pix); padding: .9rem 1rem 1rem;
+  display: flex; flex-direction: column; min-height: 100%;
+}}
+.vg-cartao[data-estado="espera"]    {{ border-left-color: var(--ambar); }}
+.vg-cartao[data-estado="desligado"] {{ border-left-color: var(--ardosia); }}
+.vg-topo {{
+  display: flex; align-items: baseline; justify-content: space-between; gap: .5rem;
+}}
+.vg-nome {{
+  font-family: var(--mono); font-size: .66rem; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--tinta-2);
+}}
+.vg-tag {{
+  font-family: var(--mono); font-size: .58rem; letter-spacing: .1em;
+  text-transform: uppercase; white-space: nowrap; color: var(--ambar);
+}}
+.vg-cartao[data-estado="desligado"] .vg-tag {{ color: var(--ardosia); }}
+.vg-valor {{
+  font-family: var(--mono); font-size: 2rem; font-weight: 600;
+  letter-spacing: -0.035em; font-variant-numeric: tabular-nums;
+  line-height: 1.05; margin: .45rem 0 .1rem; color: var(--tinta);
+}}
+.vg-cartao[data-estado="desligado"] .vg-valor {{ color: var(--tinta-2); }}
+.vg-legenda {{ font-size: .78rem; color: var(--tinta-2); line-height: 1.4; }}
+.vg-var {{
+  font-family: var(--mono); font-size: .72rem; font-weight: 600;
+  margin-left: .45rem; white-space: nowrap;
+}}
+.vg-var[data-sinal="sobe"] {{ color: var(--pix); }}
+.vg-var[data-sinal="desce"] {{ color: var(--vermelho); }}
+.vg-apoios {{
+  display: flex; flex-wrap: wrap; gap: .15rem 1.1rem;
+  margin-top: .7rem; padding-top: .6rem; border-top: 1px solid var(--linha);
+}}
+.vg-apoio {{ font-size: .74rem; color: var(--tinta-2); }}
+.vg-apoio b {{
+  color: var(--tinta); font-weight: 600; font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}}
+.vg-nota {{
+  font-size: .72rem; color: var(--tinta-2); line-height: 1.45;
+  margin-top: .6rem; padding-left: .6rem; border-left: 2px solid var(--linha);
+}}
+
 /* ── Navegação lateral: lista, não menu ────────────────────────────────── */
 [data-testid="stSidebarNav"] ul {{ gap: 0; }}
 [data-testid="stSidebarNav"] a span {{
