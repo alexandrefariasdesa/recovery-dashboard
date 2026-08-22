@@ -86,6 +86,11 @@ export default {
       return json({ error: 'invalid json' }, 400);
     }
 
+    // Rota separada: a venda que nao passa pelo nosso webhook (ver registrarCompra).
+    if (url.pathname.replace(/\/+$/, '').endsWith('/compra')) {
+      return registrarCompra(url, body, env, ctx);
+    }
+
     // fluxo e etapa vêm na query; o corpo é só o Full Contact Data (phone/id).
     const fluxo = String(url.searchParams.get('fluxo') || body.fluxo || '')
       .trim()
@@ -128,15 +133,95 @@ export default {
   },
 };
 
+// ── /compra — a venda que chega pelo fluxo, não pelo webhook ─────────────────
+/**
+ * O Protocolo do Prazer vende numa oferta da Payt que não tem a URL do
+ * `payt-webhook` cadastrada, então essa venda nunca aparece na tabela
+ * `compras` — o painel não vê, e o tipo `compra_protocolo` do motor nunca
+ * dispara. Quem sabe da venda é o fluxo do ManyChat em que a pessoa cai.
+ *
+ * Então o fluxo avisa: um External Request na entrada grava a compra aqui.
+ *
+ * O que essa rota NÃO faz: substituir o webhook. O dado que o fluxo tem é o
+ * contato (nome, telefone, e-mail) — não tem transação, UTM nem order bump, e
+ * o preço só existe porque vem cravado na query. E, como é o Make que joga a
+ * pessoa no fluxo, pausar o cenário faz esta rota parar junto. É registro de
+ * venda, não migração de gatilho.
+ *
+ *   POST /compra?token=SECRET&produto=Protocolo+do+Prazer&valor=97
+ *   body: Full Contact Data (o mesmo do rastreio — phone, id, name, email)
+ *
+ * Dedupe: `transaction_id` sintético `mc-<produto>-<contato>-<dia>`, então a
+ * mesma pessoa reentrando no fluxo no mesmo dia não vira duas vendas (o que
+ * inflaria a conversão). A origem fica gravada em `raw`, pra nunca confundir
+ * uma linha dessas com uma que veio da Payt.
+ */
+async function registrarCompra(url, body, env, ctx) {
+  const produto = String(url.searchParams.get('produto') || '').trim();
+  if (!produto) {
+    return json({ error: 'produto obrigatorio (?produto=...)' }, 400);
+  }
+  const valorParam = url.searchParams.get('valor');
+  const valor = valorParam != null && valorParam !== '' && !isNaN(Number(valorParam))
+    ? Number(valorParam)
+    : null;
+
+  const telefone = onlyDigits(body.telefone || body.phone || body.whatsapp_phone || '');
+  const subscriberId = String(body.subscriber_id || body.user_id || body.id || '').trim();
+  if (!telefone && !subscriberId) {
+    return json({ error: 'telefone ou subscriber_id obrigatorio' }, 400);
+  }
+
+  const nome = String(
+    body.nome || body.name ||
+    [body.first_name, body.last_name].filter(Boolean).join(' ') || '',
+  ).trim() || null;
+  const email = String(body.email || '').trim() || null;
+
+  const agora = manausIso(new Date());
+  const row = {
+    compra_em: agora,
+    nome,
+    email,
+    telefone: telefone || null,
+    valor,
+    produto,
+    transaction_id: `mc-${slug(produto)}-${subscriberId || telefone}-${agora.slice(0, 10)}`,
+    raw: {
+      origem: 'manychat',
+      fluxo: url.searchParams.get('fluxo') || null,
+      subscriber_id: subscriberId || null,
+      recebido_em: agora,
+    },
+  };
+
+  // Mesma regra do rastreio: responde ja, escreve em background. Uma lentidao
+  // do banco nao pode segurar a automacao do ManyChat.
+  ctx.waitUntil(
+    insertRowWithRetry(env, row, 'compras', true).catch((err) => {
+      console.error('compra insert failed (background):', err && err.stack ? err.stack : String(err));
+    }),
+  );
+
+  return json({ ok: true, destino: 'compras', produto, telefone, valor, queued: true });
+}
+
+function slug(v) {
+  return String(v || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    .slice(0, 40);
+}
+
 // ── Supabase PostgREST insert (com retry pra absorver instabilidade) ─────────
 
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 600;
 
-async function insertRowWithRetry(env, row) {
+async function insertRowWithRetry(env, row, table, ignoreDuplicates) {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      await insertRow(env, row);
+      await insertRow(env, row, table, ignoreDuplicates);
       return;
     } catch (err) {
       const retryable = err && (err.status === 429 || err.status >= 500);
@@ -147,15 +232,21 @@ async function insertRowWithRetry(env, row) {
   }
 }
 
-async function insertRow(env, row) {
-  const table = env.TABLE_NAME || 'manychat_eventos';
-  const resp = await fetch(`${env.SB_URL}/rest/v1/${table}`, {
+async function insertRow(env, row, tabela, ignoreDuplicates) {
+  const table = tabela || env.TABLE_NAME || 'manychat_eventos';
+  // Com dedupe: o PostgREST precisa do on_conflict na URL E do resolution no
+  // Prefer — so um dos dois devolve 409 em vez de ignorar a repeticao.
+  const qs = ignoreDuplicates ? '?on_conflict=transaction_id' : '';
+  const prefer = ignoreDuplicates
+    ? 'return=minimal,resolution=ignore-duplicates'
+    : 'return=minimal';
+  const resp = await fetch(`${env.SB_URL}/rest/v1/${table}${qs}`, {
     method: 'POST',
     headers: {
       apikey: env.SB_SERVICE_KEY,
       authorization: `Bearer ${env.SB_SERVICE_KEY}`,
       'content-type': 'application/json',
-      prefer: 'return=minimal',
+      prefer,
     },
     body: JSON.stringify(row),
   });
