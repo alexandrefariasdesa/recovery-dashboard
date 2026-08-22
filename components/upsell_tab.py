@@ -5,8 +5,18 @@ import plotly.graph_objects as go
 import config
 
 
+# A entrada em grupo passou a vir do endpoint /grupo (worker → `grupo_entradas`)
+# em 22/08/2026. Antes disso não existe registro no banco: a planilha antiga
+# parou em 15/07 e não foi importada. Sem essa data à vista, um período anterior
+# mostraria 0% e pareceria que ninguém entra em grupo.
+_GRUPO_DESDE = pd.Timestamp("2026-08-22 13:16")
+
+
 def render_upsell_tab(df: pd.DataFrame) -> None:
-    st.caption(f"Produto rastreado: **{config.LOW_TICKET_PRODUCT}**")
+    st.caption(
+        f"Produto rastreado: **{config.LOW_TICKET_PRODUCT}** · entrada em grupo e "
+        "upsell vêm do banco (endpoint `/grupo` e webhook da Payt)."
+    )
 
     if df is None or df.empty:
         st.info(f"Nenhum comprador encontrado para '{config.LOW_TICKET_PRODUCT}' no período selecionado.")
@@ -24,6 +34,39 @@ def render_upsell_tab(df: pd.DataFrame) -> None:
     c2.metric("Entraram no Grupo", entradas_grupo)
     c3.metric("Não Entraram", nao_entrou)
     c4.metric("Taxa de Entrada no Grupo", f"{taxa_conversao:.1f}%")
+
+    # Taxa baixa pode ser "pouca gente entrou" ou "a fonte ainda não cobria esse
+    # período". São coisas muito diferentes pra deixar o painel calado — e o
+    # segundo caso vale pra QUALQUER período que comece antes da virada, não só
+    # pros que deram zero.
+    if df["compra_em"].min() < _GRUPO_DESDE:
+        st.warning(
+            "Taxa **subestimada** neste período: a entrada em grupo só é "
+            f"registrada no banco a partir de {_GRUPO_DESDE:%d/%m/%Y %H:%M}, "
+            "quando o SendFlow passou a postar no endpoint `/grupo`. Compras "
+            "anteriores aparecem como *não entrou* por falta de registro, não "
+            "por falta de entrada — a planilha antiga parou em 15/07 e não foi "
+            "importada. Para uma leitura limpa, escolha um período que comece "
+            "depois dessa data."
+        )
+
+    # ── Upsell ───────────────────────────────────────────────────────────────
+    if "upsells" in df.columns:
+        com_upsell = int((df["upsells"] > 0).sum())
+        take_rate = (com_upsell / total_compradores * 100) if total_compradores else 0.0
+        receita_upsell = float(df["valor_upsell"].sum())
+        ticket_medio = float(df["ticket_total"].mean())
+        u1, u2, u3, u4 = st.columns(4)
+        u1.metric("Levaram Upsell", com_upsell)
+        u2.metric("Take-rate de Upsell", f"{take_rate:.1f}%")
+        u3.metric("Receita de Upsell", f"R$ {receita_upsell:,.2f}")
+        u4.metric("Ticket Médio Real", f"R$ {ticket_medio:,.2f}",
+                  help="Compra de entrada + upsells dos 7 dias seguintes.")
+        if receita_upsell == 0:
+            st.caption(
+                "Nenhum upsell no período. Só entra aqui a oferta que tiver a URL "
+                "`&evento=aprovado&venda=upsell` cadastrada na Payt."
+            )
 
     st.divider()
 
@@ -119,6 +162,28 @@ def render_upsell_tab(df: pd.DataFrame) -> None:
         except Exception:
             pass
 
+    # ── Por campanha ─────────────────────────────────────────────────────────
+    # A campanha vem de quem ENTROU no grupo (é o SendFlow que a conhece), então
+    # esta tabela responde "qual campanha encheu o grupo", não "qual campanha
+    # vendeu" — para isso falta o UTM da compra, que ainda não é gravado.
+    if "campanha" in df.columns and df["campanha"].notna().any():
+        st.subheader("Entradas por Campanha")
+        por_campanha = (
+            df[df["entrou_no_grupo"]]
+            .groupby(["campanha", "grupo"], dropna=False)
+            .agg(entradas=("entrou_no_grupo", "size"))
+            .reset_index()
+            .sort_values("entradas", ascending=False)
+        )
+        por_campanha["% das entradas"] = (
+            por_campanha["entradas"] / max(entradas_grupo, 1) * 100
+        ).round(1)
+        st.dataframe(
+            por_campanha.rename(columns={"campanha": "Campanha", "grupo": "Grupo",
+                                         "entradas": "Entradas"}),
+            hide_index=True, use_container_width=True,
+        )
+
     st.divider()
 
     # ── Tabela detalhada ─────────────────────────────────────────────────────
@@ -139,6 +204,8 @@ def render_upsell_tab(df: pd.DataFrame) -> None:
         "payment_method": "Pagamento",
         "Status Grupo": "Entrou no Grupo",
         "data_entrada_grupo": "Data Entrada no Grupo",
+        "campanha": "Campanha",
+        "upsells": "Upsells",
     }
     cols = [c for c in col_map if c in display.columns]
     st.dataframe(
