@@ -24,6 +24,12 @@ _ROTULO_ESTADO = {
     "erro": "erro",
 }
 
+_FORA_LABEL = {
+    "ativo": "ainda manda",
+    "pausado": "pausado",
+    "desconhecido": "não declarado",
+}
+
 _MODO_LABEL = {
     "off": ("desligado", "desligado"),
     "simulado": ("simulado · não manda nada", "espera"),
@@ -111,24 +117,39 @@ def render_pulso_tab(data: dict) -> None:
             vista = cfg.copy()
             vista["modo"] = vista["modo"].map(lambda m: _MODO_LABEL.get(m, (m, ""))[0])
             vista["desde"] = vista["desde"].map(_quando)
+            colunas = {
+                "tipo": "Tipo", "modo": "Modo aqui",
+                "desde": "Nesse modo desde", "max_por_dia": "Teto/dia",
+            }
+            if "fora_estado" in vista.columns:
+                # A migração é uma gangorra: o que importa é o par (aqui, lá).
+                vista["fora_estado"] = vista.apply(
+                    lambda r: _FORA_LABEL.get(r["fora_estado"], r["fora_estado"]), axis=1
+                )
+                vista = vista[["tipo", "modo", "fora_estado", "desde", "max_por_dia"]]
+                colunas["fora_estado"] = "Lá fora (declarado)"
             st.dataframe(
-                vista.rename(columns={
-                    "tipo": "Tipo", "modo": "Modo",
-                    "desde": "Nesse modo desde", "max_por_dia": "Teto/dia",
-                }),
+                vista.rename(columns=colunas),
                 hide_index=True, use_container_width=True,
             )
             ligados = cfg[cfg["modo"] == "ligado"]["tipo"].tolist()
             if ligados:
                 st.warning(
                     "Disparando de verdade: " + ", ".join(f"`{t}`" for t in ligados)
-                    + ". Confirme que o Make foi desligado pra esses tipos, senão a "
-                      "pessoa recebe duas vezes."
+                    + ". A coluna *Lá fora* é registro declarado, não leitura do "
+                      "Make — confira na origem antes de ligar mais um tipo."
                 )
             else:
                 st.caption(
                     "Nenhum tipo em **ligado** — quem fala com o cliente ainda é o Make."
                 )
+            if "fora_onde" in cfg.columns:
+                with st.expander("Quem manda hoje, por tipo"):
+                    for _, r in cfg.iterrows():
+                        st.markdown(
+                            f"- `{r['tipo']}` → {r['fora_onde']}"
+                            + (f" · desde {r['fora_desde']}" if r["fora_desde"] != "—" else "")
+                        )
 
     with dir_:
         st.markdown("**Convite da aula** — grade do pg_cron")

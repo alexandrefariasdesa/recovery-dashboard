@@ -107,6 +107,43 @@ EXTERNAS = [
     },
 ]
 
+# Do outro lado da migração está o Make (e, na boas-vindas, a automação de compra
+# aprovada). O painel não tem acesso a nenhum dos dois — então isto é registro
+# DECLARADO, no mesmo espírito de EXTERNAS: serve pra cruzar com o modo do motor
+# e gritar a única combinação perigosa, "ligado aqui E ligado lá" (mensagem dupla).
+MAKE_CENARIOS = {
+    "pix_gerado": {
+        "estado": "pausado",
+        "onde": "Make · cenário PIX/boleto gerado",
+        "desde": "21/08/2026",
+    },
+    "pix_expirado": {
+        "estado": "ativo",
+        "onde": "Make · cenário PIX/boleto expirado",
+        "desde": "—",
+    },
+    "boleto_expirado": {
+        "estado": "ativo",
+        "onde": "Make · cenário PIX/boleto expirado (mesmo fluxo do pix_expirado)",
+        "desde": "—",
+    },
+    "carrinho_abandonado": {
+        "estado": "ativo",
+        "onde": "Make · cenário de carrinho abandonado",
+        "desde": "—",
+    },
+    "compra_posicoes": {
+        "estado": "ativo",
+        "onde": "automação de compra aprovada → BOAS VINDAS PS",
+        "desde": "—",
+    },
+    "compra_protocolo": {
+        "estado": "ativo",
+        "onde": "automação de compra aprovada → BOAS VINDAS PP",
+        "desde": "—",
+    },
+}
+
 _MODO_ORDEM = {"ligado": 0, "teste": 1, "simulado": 2, "off": 3}
 
 
@@ -170,6 +207,13 @@ def _motores() -> dict:
         if not cfg.empty:
             cfg["ordem"] = cfg["modo"].map(_MODO_ORDEM).fillna(9)
             cfg = cfg.sort_values(["ordem", "tipo"]).drop(columns="ordem")
+            # O estado do outro lado não vem do banco: é declarado em MAKE_CENARIOS.
+            cfg["fora_estado"] = cfg["tipo"].map(
+                lambda t: MAKE_CENARIOS.get(t, {}).get("estado", "desconhecido"))
+            cfg["fora_onde"] = cfg["tipo"].map(
+                lambda t: MAKE_CENARIOS.get(t, {}).get("onde", "—"))
+            cfg["fora_desde"] = cfg["tipo"].map(
+                lambda t: MAKE_CENARIOS.get(t, {}).get("desde", "—"))
         fora["recuperacao"] = cfg
     except Exception as exc:
         fora["erro"] = str(exc)[:160]
@@ -273,6 +317,18 @@ def build_pulso() -> dict:
             alertas.append(f"**{f['titulo']}**: a consulta falhou — `{f['erro']}`.")
         elif f["estado"] == "mudo":
             alertas.append(f"**{f['titulo']}** nunca recebeu uma linha.")
+
+    # A colisão que custa caro: o motor mandando de verdade num tipo em que a
+    # automação de fora também continua mandando — a pessoa recebe duas vezes.
+    cfg_rec = motores.get("recuperacao")
+    if cfg_rec is not None and not cfg_rec.empty and "fora_estado" in cfg_rec.columns:
+        for _, r in cfg_rec[(cfg_rec["modo"] == "ligado")
+                            & (cfg_rec["fora_estado"] == "ativo")].iterrows():
+            alertas.append(
+                f"**{r['tipo']}** está `ligado` aqui e o registro diz que "
+                f"{r['fora_onde']} continua ativo — risco de mensagem dupla. "
+                "Pause lá ou volte este tipo pra `teste`."
+            )
 
     crons = _crons()
     if not crons.empty:
