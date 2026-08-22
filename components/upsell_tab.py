@@ -36,7 +36,7 @@ def render_upsell_tab(df: pd.DataFrame) -> None:
             y=["Compradores", "Entraram no Grupo"],
             x=[total_compradores, entradas_grupo],
             textinfo="value+percent initial",
-            marker={"color": ["#636EFA", "#00CC96"]},
+            marker={"color": ["#64748B", "#00A98F"]},
         ))
         fig_funnel.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=300)
         st.plotly_chart(fig_funnel, use_container_width=True)
@@ -54,7 +54,7 @@ def render_upsell_tab(df: pd.DataFrame) -> None:
             values="Quantidade",
             hole=0.4,
             color="Status",
-            color_discrete_map={"Entraram no Grupo": "#00CC96", "Não Entraram": "#636EFA"},
+            color_discrete_map={"Entraram no Grupo": "#00A98F", "Não Entraram": "#64748B"},
         )
         fig_pie.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=300)
         st.plotly_chart(fig_pie, use_container_width=True)
@@ -91,7 +91,7 @@ def render_upsell_tab(df: pd.DataFrame) -> None:
                     x="data",
                     y="count",
                     color="status",
-                    color_discrete_map={"Entrou no Grupo": "#00CC96", "Não Entrou": "#636EFA"},
+                    color_discrete_map={"Entrou no Grupo": "#00A98F", "Não Entrou": "#64748B"},
                     labels={"data": "Data", "count": "Quantidade", "status": ""},
                     text_auto=True,
                 )
@@ -109,7 +109,7 @@ def render_upsell_tab(df: pd.DataFrame) -> None:
                     text="taxa",
                 )
                 fig_rate.update_traces(
-                    line_color="#00CC96",
+                    line_color="#00A98F",
                     texttemplate="%{text}%",
                     textposition="top center",
                 )

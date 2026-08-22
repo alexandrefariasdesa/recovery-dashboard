@@ -66,7 +66,7 @@ def render_venda_funil_tab(data: dict) -> None:
 
     # ── Funil dos 2 braços lado a lado ──────────────────────────────────────
     st.subheader("Funil por opção")
-    cores = {"calculando": "#636EFA", "sentindo": "#EF553B"}
+    cores = {"calculando": "#64748B", "sentindo": "#C5303A"}
     col_calc, col_sent = st.columns(2)
     for braco, col in zip(BRACOS, [col_calc, col_sent]):
         b = bracos.get(braco, {})

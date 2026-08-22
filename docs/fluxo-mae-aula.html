@@ -1,0 +1,295 @@
+<title>Fluxo-Mãe da Aula</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Public+Sans:wght@400;600;700&display=swap">
+<style>
+  :root{
+    --bg:#FBF6F3; --card:#FFFFFF; --ink:#2B181D; --muted:#82686E;
+    --accent:#7D2A3E; --accent-ink:#FFFFFF; --accent-soft:#F3E0E4;
+    --bubble:#E9F6E2; --bubble-ink:#23331C; --line:#EADCD8;
+    --chip:#F6EAE6; --ok:#2E7D4F; --warn:#A05A00;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#1E1417; --card:#2A1D21; --ink:#F4E9EA; --muted:#B79CA2;
+      --accent:#E094A7; --accent-ink:#33121B; --accent-soft:#45242E;
+      --bubble:#20331F; --bubble-ink:#D9EDD2; --line:#3D2B30;
+      --chip:#362328; --ok:#7CC79A; --warn:#E0A45C;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#1E1417; --card:#2A1D21; --ink:#F4E9EA; --muted:#B79CA2;
+    --accent:#E094A7; --accent-ink:#33121B; --accent-soft:#45242E;
+    --bubble:#20331F; --bubble-ink:#D9EDD2; --line:#3D2B30;
+    --chip:#362328; --ok:#7CC79A; --warn:#E0A45C;
+  }
+  body{background:var(--bg);color:var(--ink);font:16px/1.6 "Public Sans",system-ui,sans-serif;margin:0;}
+  .wrap{max-width:860px;margin:0 auto;padding:48px 24px 80px;}
+  h1,h2,h3{font-family:"Fraunces",Georgia,serif;font-weight:650;line-height:1.2;text-wrap:balance;margin:0;}
+  h1{font-size:2.4rem;}
+  h2{font-size:1.5rem;margin-top:56px;padding-top:24px;border-top:1px solid var(--line);}
+  h3{font-size:1.08rem;}
+  p{margin:.7em 0;}
+  .lede{color:var(--muted);font-size:1.05rem;max-width:60ch;}
+  .eyebrow{letter-spacing:.14em;text-transform:uppercase;font-size:.72rem;font-weight:700;color:var(--accent);}
+  table{border-collapse:collapse;width:100%;font-size:.92rem;}
+  .tablewrap{overflow-x:auto;margin:20px 0;border:1px solid var(--line);border-radius:10px;background:var(--card);}
+  th{font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);text-align:left;}
+  th,td{padding:9px 14px;border-bottom:1px solid var(--line);vertical-align:top;}
+  tr:last-child td{border-bottom:0;}
+  td.t{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap;color:var(--accent);}
+  .chip{display:inline-block;background:var(--chip);border-radius:999px;padding:2px 10px;font-size:.75rem;font-weight:600;white-space:nowrap;}
+  .chip.tpl{background:var(--accent-soft);color:var(--accent);}
+  .ok{color:var(--ok);font-weight:700;} .warn{color:var(--warn);font-weight:700;}
+  .brick{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin:18px 0;}
+  .brick header{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:6px;}
+  .brick .who{color:var(--muted);font-size:.85rem;}
+  .bubble{background:var(--bubble);color:var(--bubble-ink);border-radius:12px;border-top-left-radius:4px;
+    padding:14px 18px;margin:12px 0;white-space:pre-line;font-size:.95rem;max-width:56ch;}
+  .wire{border-left:3px solid var(--accent-soft);padding:2px 0 2px 14px;color:var(--muted);font-size:.9rem;margin:10px 0;}
+  .wire b{color:var(--ink);}
+  code{background:var(--chip);border-radius:5px;padding:1px 6px;font-size:.86em;}
+  ul{padding-left:22px;} li{margin:4px 0;}
+  .note{background:var(--accent-soft);border-radius:10px;padding:14px 18px;font-size:.93rem;margin:16px 0;}
+  .note b{color:var(--accent);}
+  a{color:var(--accent);}
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">ManyChat · Convite da aula · Posições Secretas</p>
+  <h1>Fluxo-Mãe da Aula</h1>
+  <p class="lede">Um único fluxo com os 13 disparos do dia, pra montar no ManyChat. A automação
+  (Supabase) coloca cada compradora aqui dentro <b>às 09h00 do dia em que ela completa 7 dias de
+  compra</b> — o fluxo cuida do resto até as 20h35. Aula ao vivo às <b>19h30 (Brasília)</b>;
+  toda a copy abaixo já está corrigida do 19h original pra 19h30.</p>
+
+  <h2>Como o dia funciona</h2>
+  <p>Todo mundo entra às 09h00 pelo template do vídeo. A partir daí o fluxo é uma <b>espinha de
+  delays relativos</b>: como a entrada acontece sempre às 09h, cada Smart Delay soma um intervalo
+  fixo e cai exatamente no horário da grade. Em cada parada, uma condição sobre o campo
+  <code>clicou_aula</code> decide quem recebe:</p>
+  <ul>
+    <li><b>Clicou em qualquer botão</b> (às 09h ou na repescagem) → recebe todas as mensagens do dia. O clique abre a janela de 24h, então tudo sai como mensagem livre, sem custo de template.</li>
+    <li><b>Nunca clicou</b> → só recebe os 3 templates: 09h00, repescagem das 12h00 e o link da sala às 19h15 (a decisão de lotar a sala). Depois disso, sai do dia.</li>
+    <li>Quem clica tarde (ex.: na repescagem às 13h) entra na cadência <b>a partir da próxima parada</b> — nada quebra.</li>
+  </ul>
+
+  <div class="tablewrap"><table>
+    <tr><th>Delay</th><th>Cai às</th><th>Mensagem</th><th>Quem recebe</th></tr>
+    <tr><td>entrada</td><td class="t">09h00</td><td>🎥 Vídeo da Luiza + 2 botões <span class="chip tpl">template 1</span></td><td>todas (base do dia)</td></tr>
+    <tr><td>—</td><td class="t">no clique</td><td>Confirmação + despertador 19h15</td><td>quem clicou</td></tr>
+    <tr><td>+2h30</td><td class="t">11h30</td><td>🖼️ Card dos 4 cadeados + lista</td><td>clicou</td></tr>
+    <tr><td>+30min</td><td class="t">12h00</td><td>Repescagem <span class="chip tpl">template 2</span></td><td>NÃO clicou</td></tr>
+    <tr><td>+1h</td><td class="t">13h00</td><td>🎧 Áudio do mofo + legenda</td><td>clicou</td></tr>
+    <tr><td>+2h</td><td class="t">15h00</td><td>🎥 Vídeo bastidor + legenda</td><td>clicou</td></tr>
+    <tr><td>+2h30</td><td class="t">17h30</td><td>Logística ("faltam 2 horas")</td><td>clicou</td></tr>
+    <tr><td>+1h</td><td class="t">18h30</td><td>🎧 Áudio "falta 1 hora" + legenda</td><td>clicou</td></tr>
+    <tr><td>+30min</td><td class="t">19h00</td><td>🖼️ Card "começa em 30 min" + link</td><td>clicou</td></tr>
+    <tr><td>+15min</td><td class="t">19h15</td><td>Abriu a sala + link · texto p/ quem clicou <b>ou</b> <span class="chip tpl">template 3</span> p/ quem nunca clicou (fim pra elas)</td><td>todas</td></tr>
+    <tr><td>+15min</td><td class="t">19h30</td><td>🎧 Áudio "começando agora" + link</td><td>clicou</td></tr>
+    <tr><td>+15min</td><td class="t">19h45</td><td>Retardatárias + link</td><td>clicou</td></tr>
+    <tr><td>+25min</td><td class="t">20h10</td><td>Âncora dos sinais + 3 botões</td><td>clicou</td></tr>
+    <tr><td>+25min</td><td class="t">20h35</td><td>Reta final + surpresa + link</td><td>clicou</td></tr>
+  </table></div>
+
+  <div class="note"><b>Fiação padrão de cada parada:</b> Smart Delay → Condição
+  <code>clicou_aula</code> tem valor <code>sim</code>? → <i>sim</i>: envia a mensagem; <i>não</i>: pula.
+  <b>Os dois ramos apontam pro próximo Smart Delay</b> — a espinha nunca se parte.
+  Exceções: 12h00 e 19h15 invertem (mandam pro ramo <i>não</i>), e 19h15/<i>não</i> termina o fluxo.</div>
+
+  <h2>O que já está pronto</h2>
+  <ul>
+    <li><span class="ok">✔</span> Campos <code>link_sala</code> e <code>clicou_aula</code> — criei via API hoje. Use <code>{{link_sala}}</code> em toda mensagem com link: cada mulher recebe o link da Applive já preenchido com nome, e-mail e telefone dela.</li>
+    <li><span class="ok">✔</span> Os 3 templates aprovados (09h00 vídeo · 12h00 repescagem · 19h15 sala aberta). O template 3 precisa de uma <b>variável no corpo</b> preenchida com <code>link_sala</code>.</li>
+    <li><span class="warn">⚠</span> Criar as tags: <code>cadeado_espelho</code>, <code>cadeado_insegura</code>, <code>cadeado_fogo</code>, <code>cadeado_cuidar</code>, <code>reconheci_1</code>, <code>reconheci_3</code>, <code>nao_entrou</code> (o ManyChat cria na hora em que você usa).</li>
+    <li><span class="warn">⚠</span> Mídias: os roteiros do vídeo das 09h e do áudio das 13h falam <b>"19h"</b> — gravar dizendo <b>19h30</b> (ou sem citar hora). O áudio das 18h ("falta 1 hora") funciona como está, porque agora sai às 18h30.</li>
+  </ul>
+
+  <h2>Tijolo a tijolo</h2>
+
+  <div class="brick"><header><h3>1 · 09h00 — Template do vídeo</h3><span class="chip tpl">template 1</span><span class="who">todas</span></header>
+    <div class="wire"><b>Primeiro nó do fluxo</b> (é ele que a automação dispara). Vídeo no header + legenda + botões <b>Quero participar 🙋‍♀️</b> e <b>Me conta mais 👀</b>.</div>
+    <div class="bubble">Aperta o play 💗 eu preciso que você ouça isso da minha boca.
+
+Hoje, *19h30*, ao vivo comigo. De graça.
+
+Me responde aqui embaixo que eu guardo o seu lugar 😍</div>
+  </div>
+
+  <div class="brick"><header><h3>2 · No clique — Confirmação</h3><span class="who">quem clicou (qualquer botão, inclusive da repescagem)</span></header>
+    <div class="wire">Nos dois botões: <b>Set field</b> <code>clicou_aula = sim</code> → mensagem abaixo. Quem clicou em "Me conta mais" recebe a mesma trocando só a primeira linha por: <i>"Curiosa do jeito que eu gosto 😏 mas o principal eu só conto ao vivo, viu?"</i></div>
+    <div class="bubble">Seu lugar tá guardado 🥰
+
+Hoje, *19h30*, ao vivo comigo. Você só precisa do celular.
+
+Faz uma coisa por mim agora, AGORA: coloca um despertador pras *19h15*.
+
+Não confia na sua memória não, que o dia corre e quando vê passou 😅
+
+E já vou te adiantar uma coisa 🎁 no final da aula eu vou dar uma surpresa. Um presente que eu nunca dei em nenhuma outra live minha.
+
+Mas é só pra quem ficar até o fim, ao vivo. Não vai ficar gravado e eu não vou mandar depois.
+
+Mais tarde eu te mando o link da sala por aqui 💗</div>
+  </div>
+
+  <div class="brick"><header><h3>3 · 11h30 — Card dos 4 cadeados</h3><span class="who">clicou</span></header>
+    <div class="wire">Smart Delay <b>+2h30</b> → condição <code>clicou_aula = sim</code>. Envia a imagem do card + texto + <b>lista interativa</b> com as 4 opções — cada opção seta a tag (<code>cadeado_espelho</code> / <code>cadeado_insegura</code> / <code>cadeado_fogo</code> / <code>cadeado_cuidar</code>) pro fluxo de carrinho depois.</div>
+    <div class="bubble">Vou ser sincera com você 💗
+
+Quando eu leio o que as mulheres me escrevem, as frases que MAIS aparecem são essas:
+
+🔒 "Eu não me reconheço mais no espelho"
+
+🔒 "Eu sou segura por fora e insegura por dentro"
+
+🔒 "Eu perdi meu fogo e não sei reacender"
+
+🔒 "Eu cuido de todo mundo e ninguém cuida de mim"
+
+Se você leu e sentiu aquele aperto de *"nossa, sou eu"*, então a aula de hoje foi feita pra VOCÊ. Literalmente.
+
+E olha, não é sobre mudar de corpo. Não é sobre mudar de vida. É sobre o que vem ANTES disso.
+
+O que ninguém nunca te ensinou.
+
+Me conta: qual desses 4 é mais você? 👇</div>
+  </div>
+
+  <div class="brick"><header><h3>4 · 12h00 — Repescagem</h3><span class="chip tpl">template 2</span><span class="who">NÃO clicou</span></header>
+    <div class="wire">Smart Delay <b>+30min</b> → condição invertida: só quem <b>não</b> tem <code>clicou_aula</code>. Botão <b>Quero participar 🙋‍♀️</b> → mesmo handler do tijolo 2.</div>
+    <div class="bubble">{{nome}}, você viu meu vídeo de hoje cedo? 👀
+
+Hoje às *19h30* eu vou falar ao vivo sobre uma coisa que quase toda mulher sente e quase nenhuma fala em voz alta.
+
+Tô separando os lugares de quem confirmou. Me responde aqui que eu guardo o seu 💗</div>
+  </div>
+
+  <div class="brick"><header><h3>5 · 13h00 — Áudio do mofo</h3><span class="who">clicou</span></header>
+    <div class="wire">Smart Delay <b>+1h</b> → condição. Áudio (~50s, roteiro no Google Doc — regravar citando <b>19h30</b>) + legenda:</div>
+    <div class="bubble">Quem já tentou de tudo e nada colou de verdade responde *"já tentei"* aqui 👇</div>
+  </div>
+
+  <div class="brick"><header><h3>6 · 15h00 — Vídeo bastidor</h3><span class="who">clicou</span></header>
+    <div class="wire">Smart Delay <b>+2h</b> → condição. Vídeo (~40s) + legenda:</div>
+    <div class="bubble">Bastidor de hoje 🎬 tô preparando tudo pra você 💗
+
+Lembrando: a surpresa do final é só pra quem fica AO VIVO 🎁</div>
+  </div>
+
+  <div class="brick"><header><h3>7 · 17h30 — Logística</h3><span class="who">clicou</span></header>
+    <div class="wire">Smart Delay <b>+2h30</b>. O "faltam 2 horas" agora bate certinho com a aula às 19h30.</div>
+    <div class="bubble">Faltam *2 horas* 🔥
+
+Deixa eu já te ajudar a se organizar, porque eu te quero INTEIRA na aula hoje, sem correria 💗
+
+✨ Resolve o jantar antes
+
+✨ Deixa o celular carregado
+
+✨ Avisa que das 19h30 às 20h30 você tá ocupada... com VOCÊ
+
+✨ Separa teu cafezinho, tua água, teu vinho 🍷
+
+Você passa o dia inteiro cuidando dos outros. Essa uma horinha é SUA.
+
+Quem já tá se organizando pra não perder responde *"separando meu cantinho"* 👇</div>
+  </div>
+
+  <div class="brick"><header><h3>8 · 18h30 — Áudio "falta 1 hora"</h3><span class="who">clicou</span></header>
+    <div class="wire">Smart Delay <b>+1h</b>. Áudio (~25s, o original serve — a conta de 1 hora fecha) + legenda:</div>
+    <div class="bubble">⏰ *18h30*, falta 1 hora.
+
+Confirma comigo: quem VAI estar ao vivo deixa um 🙋‍♀️</div>
+  </div>
+
+  <div class="brick"><header><h3>9 · 19h00 — Card "começa em 30 min" + link</h3><span class="who">clicou</span></header>
+    <div class="wire">Smart Delay <b>+30min</b>. Imagem do card do relógio + texto com <code>{{link_sala}}</code>:</div>
+    <div class="bubble">É AGORA, meu amor 🔥
+
+Faltam *30 minutinhos* pra aula começar.
+
+👉 Já deixa o link aberto pra não correr depois:
+
+{{link_sala}}
+
+Entra uns minutinhos antes pra garantir teu lugar e dar um oi no chat 💗
+
+Eu vou estar te esperando do outro lado.</div>
+  </div>
+
+  <div class="brick"><header><h3>10 · 19h15 — Abriu a sala (bifurca)</h3><span class="chip tpl">template 3 no ramo "não"</span><span class="who">todas</span></header>
+    <div class="wire">Smart Delay <b>+15min</b> → condição. <b>Clicou</b> → texto livre abaixo. <b>Nunca clicou</b> → template 3 com a variável do corpo preenchida com <code>link_sala</code> — e <b>o fluxo termina</b> pra elas. É o horário do despertador que ela marcou de manhã.</div>
+    <div class="bubble">ABRIU A SALA 🔥🔥🔥
+
+A gente já tá entrando, vem 👇
+
+{{link_sala}}
+
+Entra agora, coloca de onde você tá assistindo e a sua idade no chat, que eu vou lendo tudo 💗
+
+Pega teu cafezinho, teu vinho, e senta que a conversa de hoje pode mudar muita coisa pra você.
+
+Te vejo lá DENTRO 😍</div>
+  </div>
+
+  <div class="brick"><header><h3>11 · 19h30 — Áudio "começando agora"</h3><span class="who">clicou</span></header>
+    <div class="wire">Smart Delay <b>+15min</b>. Áudio (~20s, pode ser pré-gravado) + legenda:</div>
+    <div class="bubble">🔴 NO AR AGORA 👉 {{link_sala}}</div>
+  </div>
+
+  <div class="brick"><header><h3>12 · 19h45 — Retardatárias</h3><span class="who">clicou</span></header>
+    <div class="wire">Smart Delay <b>+15min</b>.</div>
+    <div class="bubble">{{nome}}, se você AINDA não entrou, ó 👇
+
+Eu acabei de explicar uma coisa que deixou o chat em choque: o motivo REAL de nada que você tentou até hoje ter funcionado 🤯
+
+Não é você que tá quebrada. Você só tá com a chave errada na fechadura.
+
+Ainda dá tempo de pegar o comecinho, vem:
+
+{{link_sala}}
+
+🔴 Tá ao vivo AGORA</div>
+  </div>
+
+  <div class="brick"><header><h3>13 · 20h10 — Âncora dos sinais + botões</h3><span class="who">clicou</span></header>
+    <div class="wire">Smart Delay <b>+25min</b>. Botões: <b>Me reconheci em 1 🪞</b> (tag <code>reconheci_1</code>) · <b>Nos 3 😶</b> (tag <code>reconheci_3</code>) · <b>Ainda não entrei 🙋‍♀️</b> (tag <code>nao_entrou</code> + resposta automática: <i>"Corre que ainda dá tempo, meu amor 👉 {{link_sala}}"</i>).</div>
+    <div class="bubble">Quem tá AO VIVO comigo tá sentindo isso agora 👇
+
+A Luiza acabou de mostrar os sinais daquela raiz que ela falou de manhã 🌱
+
+🪞 O espelho que virou inimigo
+
+🤐 A vontade que engasga na garganta e não sai
+
+🚶 A vida que virou automática e você nem lembra quando
+
+E o chat tá LOTADO de mulher se reconhecendo nos três.
+
+Responde aqui também 👇</div>
+  </div>
+
+  <div class="brick"><header><h3>14 · 20h35 — Reta final + surpresa</h3><span class="who">clicou</span></header>
+    <div class="wire">Smart Delay <b>+25min</b>. Última mensagem do dia — o fluxo termina aqui pra todo mundo.</div>
+    <div class="bubble">Reta final da aula AO VIVO 🔥
+
+Se você ficou até aqui comigo, PARABÉNS de verdade. Você acabou de entender sobre você mesma o que a maioria das mulheres nunca vai entender.
+
+E a surpresa que a Luiza prometeu tá acontecendo AGORA, ao vivo 🎁
+
+Quem ainda não entrou, esse é o último empurrãozinho 👇
+
+{{link_sala}}
+
+Fica até o fim. Você merece esse presente 💗</div>
+  </div>
+
+  <h2>Quando terminar de montar</h2>
+  <ul>
+    <li>Publica o fluxo e me manda o <b>nome dele</b> — eu pego o identificador pela API e configuro na automação (<code>MC_FLOW_NS</code>).</li>
+    <li>Fazemos um <b>teste real com o seu número</b>: eu te insiro na base manualmente e disparo — você recebe o dia inteiro do fluxo antes de qualquer compradora.</li>
+    <li>Validado o teste, eu dou o <b>go-live</b>: a primeira leva (quem completa 7 dias naquele dia, ~140 mulheres) sai às 09h00 da manhã seguinte, todo dia, sozinha.</li>
+  </ul>
+  <div class="note"><b>Lembretes de conteúdo:</b> a surpresa citada 3 vezes precisa existir de verdade na aula ·
+  nenhuma mensagem do dia leva oferta ou preço (a venda é na voz da Luiza, e o carrinho é outro fluxo) ·
+  os dois cards não podem entregar o tema nem constranger quem olha a tela por cima do ombro.</div>
+</div>

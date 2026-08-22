@@ -1,3 +1,5 @@
+import json
+import os
 import unicodedata
 import gspread
 from google.oauth2.service_account import Credentials
@@ -19,6 +21,14 @@ def _client():
             return gspread.authorize(creds)
     except Exception:
         pass
+
+    # Railway (e qualquer host sem arquivo): a service account inteira vem como
+    # JSON numa env var. Continua caindo pro arquivo quando roda local.
+    bruto = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    if bruto:
+        creds = Credentials.from_service_account_info(json.loads(bruto), scopes=_SCOPES)
+        return gspread.authorize(creds)
+
     creds = Credentials.from_service_account_file(
         config.GOOGLE_SERVICE_ACCOUNT_FILE,
         scopes=_SCOPES,

@@ -40,7 +40,7 @@ def render_group_followup_tab(df: pd.DataFrame, cutoff_date) -> None:
         .groupby("dia").size().reset_index(name="qtd").sort_values("dia")
     )
     fig = go.Figure(go.Bar(
-        x=by_day["dia"], y=by_day["qtd"], marker_color="#EF553B",
+        x=by_day["dia"], y=by_day["qtd"], marker_color="#C5303A",
         text=by_day["qtd"], textposition="outside",
     ))
     fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=300,

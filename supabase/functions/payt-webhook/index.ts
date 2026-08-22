@@ -121,6 +121,7 @@ Deno.serve(async (req) => {
 
   // Campos comuns aos dois destinos (recovery_events e compras).
   const nome = pick(g, "customer.name", "transaction.customer.name", "data.customer.name", "name", "buyer.name");
+  const email = pick(g, "customer.email", "transaction.customer.email", "data.customer.email", "email", "buyer.email");
   const telefone = onlyDigits(pick(g, "customer.phone", "transaction.customer.phone", "data.customer.phone", "phone", "buyer.phone", "whatsapp"));
   // Payt: valor em CENTAVOS em transaction.total_price / product.price.
   const centavos = pick(g, "transaction.total_price", "total_price", "product.price");
@@ -145,7 +146,7 @@ Deno.serve(async (req) => {
     const produto = pick(g, "product.name", "transaction.product.name", "product_name");
     const compraRow: Record<string, unknown> = {
       compra_em: isNaN(compraEm.getTime()) ? new Date().toISOString() : compraEm.toISOString(),
-      nome, telefone, valor, produto, transaction_id: transactionId,
+      nome, email, telefone, valor, produto, transaction_id: transactionId,
     };
     // Upsert por transaction_id: reenvio da Payt não duplica a compra (o que
     // inflaria a conversão). Sem transaction_id, insere direto.

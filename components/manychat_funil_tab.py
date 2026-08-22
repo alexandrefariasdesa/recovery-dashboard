@@ -53,7 +53,7 @@ def render_funil_tab(data: dict) -> None:
         y=["Recebeu", "Entrou", "Engajou"],
         x=fx,
         textinfo="value+percent initial",
-        marker={"color": ["#636EFA", "#00CC96", "#19D3F3"]},
+        marker={"color": ["#64748B", "#00A98F", "#19D3F3"]},
     ))
     fig_fun.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=280)
     st.plotly_chart(fig_fun, use_container_width=True)

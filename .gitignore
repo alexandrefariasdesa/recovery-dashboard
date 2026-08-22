@@ -3,6 +3,8 @@
 .env.local
 service_account.json
 db/PAYT_WEBHOOK_URLS.txt
+db/ops_convite_cron.sql
+db/ops_recuperacao_cron.sql
 __pycache__/
 *.pyc
 .streamlit/secrets.toml
@@ -14,3 +16,8 @@ apps_script/*
 
 # DB local do ruflo
 ruvector.db
+
+# Trabalho de automação do ManyChat (screenshots + dumps de fluxo, ~3 MB)
+.mc_shots/
+
+supabase/.temp/

@@ -7,20 +7,31 @@ from processors.group_followup import build_group_followup_dataframe
 from processors.manychat_engagement import build_manychat_engagement
 from processors.manychat_funil import build_funis
 from processors.venda_funil import build_venda_funil
+from processors.aula_convites import build_aula_convites
+from processors.recuperacao_migracao import build_recuperacao_migracao
 from components.recovery_tab import render_recovery_tab
 from components.upsell_tab import render_upsell_tab
 from components.group_followup_tab import render_group_followup_tab
 from components.manychat_tab import render_manychat_tab
 from components.manychat_funil_tab import render_funil_tab
 from components.venda_funil_tab import render_venda_funil_tab
+from components.aula_tab import render_aula_tab
+from components.recuperacao_migracao_tab import render_recuperacao_migracao_tab
+from components.theme import aplicar_tema, cabecalho
+from components.auth import exigir_senha
 
 st.set_page_config(
-    page_title="Dashboard de Recuperação & Upsell",
-    page_icon="📊",
+    page_title="Recuperação · painel de operação",
+    page_icon="◧",
     layout="wide",
 )
 
-st.title("📊 Dashboard de Recuperação & Upsell")
+exigir_senha()
+aplicar_tema()
+
+# O cabeçalho precisa do período escolhido logo abaixo, mas tem que aparecer
+# primeiro — reserva o lugar agora e preenche depois.
+topo = st.container()
 
 # ── Filtros de período ───────────────────────────────────────────────────────
 hoje = datetime.now().date()
@@ -81,8 +92,8 @@ with st.container():
             format="DD/MM/YYYY",
         )
     with col_btn:
-        st.write("")
-        if st.button("🔄 Atualizar", use_container_width=True):
+        st.markdown('<div class="op-espaco-rotulo"></div>', unsafe_allow_html=True)
+        if st.button("Atualizar", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
 
@@ -90,18 +101,19 @@ if start_date > end_date:
     st.error("A data inicial não pode ser maior que a data final.")
     st.stop()
 
-st.caption(f"Período: **{start_date.strftime('%d/%m/%Y')}** até **{end_date.strftime('%d/%m/%Y')}** ({(end_date - start_date).days + 1} dias)")
-
-st.divider()
+with topo:
+    cabecalho(start_date, end_date)
 
 # ── Abas ─────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "🔁 Recuperações  (Boleto / PIX / Carrinho)",
-    "⬆️ Conversão Upsell",
-    "👥 Grupo — 2ª chamada",
-    "📣 Efetividade ManyChat",
-    "🧭 Funil de Etapas ManyChat",
-    "🛒 Funil de Venda (Disparo API)",
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    "Recuperações",
+    "Upsell",
+    "Grupo",
+    "Efetividade",
+    "Funil de etapas",
+    "Funil de venda",
+    "Convite da aula",
+    "Motor novo",
 ])
 
 with tab1:
@@ -169,5 +181,25 @@ with tab6:
             render_venda_funil_tab(venda_data)
         except Exception as exc:
             st.error(f"Erro ao carregar funil de venda: {exc}")
+            with st.expander("Detalhes do erro"):
+                st.exception(exc)
+
+with tab7:
+    with st.spinner("Carregando convites da aula..."):
+        try:
+            aula_data = build_aula_convites(start_date, end_date)
+            render_aula_tab(aula_data)
+        except Exception as exc:
+            st.error(f"Erro ao carregar convites da aula: {exc}")
+            with st.expander("Detalhes do erro"):
+                st.exception(exc)
+
+with tab8:
+    with st.spinner("Carregando motor de recuperação..."):
+        try:
+            recup_data = build_recuperacao_migracao(start_date, end_date)
+            render_recuperacao_migracao_tab(recup_data)
+        except Exception as exc:
+            st.error(f"Erro ao carregar motor de recuperação: {exc}")
             with st.expander("Detalhes do erro"):
                 st.exception(exc)

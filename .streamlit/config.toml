@@ -1,0 +1,16 @@
+# Tema base do painel — os detalhes finos vivem em components/theme.py (CSS).
+# Aqui ficam só as cores que o Streamlit usa nos widgets dele.
+[theme]
+base = "light"
+primaryColor = "#00A98F"
+backgroundColor = "#F2F4F7"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#0F1720"
+
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = true
+
+[browser]
+gatherUsageStats = false

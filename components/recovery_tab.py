@@ -3,6 +3,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+from components.theme import dinheiro
+
 _LABELS = {
     "boleto_gerado": "Boleto Gerado",
     "boleto_expirado": "Boleto Expirado",
@@ -36,8 +38,8 @@ def render_recovery_tab(df: pd.DataFrame) -> None:
     c1.metric("Total de Eventos", total)
     c2.metric("Converteram em Compra", total_convertidos)
     c3.metric("Taxa de Conversão Geral", f"{taxa:.1f}%")
-    c4.metric("Receita Recuperável", f"R$ {receita_recuperavel:,.2f}")
-    c5.metric("Receita Recuperada", f"R$ {receita_recuperada:,.2f}")
+    c4.metric("Receita Recuperável", dinheiro(receita_recuperavel))
+    c5.metric("Receita Recuperada", dinheiro(receita_recuperada))
 
     st.divider()
 
@@ -72,7 +74,7 @@ def render_recovery_tab(df: pd.DataFrame) -> None:
             fig = px.bar(
                 bdf, x="Tipo", y=["Total", "Convertidos"],
                 barmode="group",
-                color_discrete_sequence=["#636EFA", "#00CC96"],
+                color_discrete_sequence=["#64748B", "#00A98F"],
                 labels={"value": "Quantidade", "variable": ""},
                 text_auto=True,
             )
@@ -102,11 +104,11 @@ def render_recovery_tab(df: pd.DataFrame) -> None:
 
     # Cores fixas por tipo (consistentes entre gráfico e legenda)
     _TYPE_COLORS = {
-        "pix_gerado": "#00CC96",
-        "pix_expirado": "#636EFA",
-        "boleto_gerado": "#FFA15A",
-        "boleto_expirado": "#EF553B",
-        "carrinho_abandonado": "#AB63FA",
+        "pix_gerado": "#00A98F",
+        "pix_expirado": "#64748B",
+        "boleto_gerado": "#B87400",
+        "boleto_expirado": "#C5303A",
+        "carrinho_abandonado": "#0F1720",
     }
 
     daily = df.copy()
@@ -159,13 +161,13 @@ def render_recovery_tab(df: pd.DataFrame) -> None:
     fig_rev.add_trace(go.Scatter(
         x=receita_dia["dia"], y=receita_dia["recuperavel"],
         mode="lines+markers", name="Recuperável",
-        line=dict(color="#EF553B", width=3), marker=dict(size=7),
+        line=dict(color="#C5303A", width=3), marker=dict(size=7),
         hovertemplate="%{x|%d/%m}<br>Recuperável: R$ %{y:,.2f}<extra></extra>",
     ))
     fig_rev.add_trace(go.Scatter(
         x=receita_dia["dia"], y=receita_dia["recuperada"],
         mode="lines+markers", name="Recuperada",
-        line=dict(color="#00CC96", width=3), marker=dict(size=7),
+        line=dict(color="#00A98F", width=3), marker=dict(size=7),
         hovertemplate="%{x|%d/%m}<br>Recuperada: R$ %{y:,.2f}<extra></extra>",
     ))
     fig_rev.update_layout(
@@ -210,7 +212,7 @@ def render_recovery_tab(df: pd.DataFrame) -> None:
         y=["Total de Eventos", "Converteram em Compra"],
         x=[total, total_convertidos],
         textinfo="value+percent initial",
-        marker={"color": ["#636EFA", "#00CC96"]},
+        marker={"color": ["#64748B", "#00A98F"]},
     ))
     fig_funnel.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=260)
     st.plotly_chart(fig_funnel, use_container_width=True)

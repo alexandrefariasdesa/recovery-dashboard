@@ -6,9 +6,9 @@ import plotly.graph_objects as go
 from processors.manychat_engagement import LABELS, ALL_TIPOS
 
 _TYPE_COLORS = {
-    "pix_boleto_gerado": "#00CC96",
-    "pix_boleto_expirado": "#636EFA",
-    "carrinho_abandonado": "#AB63FA",
+    "pix_boleto_gerado": "#00A98F",
+    "pix_boleto_expirado": "#64748B",
+    "carrinho_abandonado": "#0F1720",
     "compra_aprovada": "#19D3F3",
 }
 
@@ -71,7 +71,7 @@ def render_manychat_tab(data: dict) -> None:
         y=["Disparos", "Recebeu", "Clicou", "Converteu pós-clique"],
         x=fx,
         textinfo="value+percent initial",
-        marker={"color": ["#AB63FA", "#636EFA", "#00CC96", "#19D3F3"]},
+        marker={"color": ["#0F1720", "#64748B", "#00A98F", "#19D3F3"]},
     ))
     fig_fun.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=280)
     st.plotly_chart(fig_fun, use_container_width=True)
@@ -87,7 +87,7 @@ def render_manychat_tab(data: dict) -> None:
             resumo, x="Tipo",
             y=["Disparos", "Recebeu (pessoas)", "Clicou (pessoas)"],
             barmode="group",
-            color_discrete_sequence=["#AB63FA", "#636EFA", "#00CC96"],
+            color_discrete_sequence=["#0F1720", "#64748B", "#00A98F"],
             labels={"value": "Quantidade", "variable": ""},
             text_auto=True,
         )
