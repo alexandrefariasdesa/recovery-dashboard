@@ -87,8 +87,12 @@ export default {
     }
 
     // Rota separada: a venda que nao passa pelo nosso webhook (ver registrarCompra).
-    if (url.pathname.replace(/\/+$/, '').endsWith('/compra')) {
+    const caminho = url.pathname.replace(/\/+$/, '');
+    if (caminho.endsWith('/compra')) {
       return registrarCompra(url, body, env, ctx);
+    }
+    if (caminho.endsWith('/grupo')) {
+      return registrarEntradaGrupo(url, body, env, ctx);
     }
 
     // fluxo e etapa vêm na query; o corpo é só o Full Contact Data (phone/id).
@@ -213,6 +217,96 @@ function slug(v) {
     .slice(0, 40);
 }
 
+// ── /grupo — entrada em grupo de WhatsApp, com a campanha junto ─────────────
+/**
+ * A pergunta que essa rota existe pra responder: **de cada 100 compradoras do
+ * Posições, quantas entram no grupo?** O telefone é a chave que cruza com
+ * `compras` (mesmo `phone_core` do resto do banco, então a variante com/sem o
+ * 9 colapsa sozinha), e a campanha vem junto pra saber qual origem enche o
+ * grupo e qual só enche a lista.
+ *
+ * Hoje esse fato só existia na planilha "[LEADS] ENTRADA NOS GRUPOS", escrita
+ * pelo Make a partir do SendFlow — e ela parou de receber em 15/07/2026.
+ *
+ *   POST /grupo?token=SECRET[&campanha=..&grupo=..&evento=..]
+ *   body: o payload de quem avisa (SendFlow, Make, ManyChat — tanto faz)
+ *
+ * O corpo é lido de forma permissiva porque o formato de quem vai postar aqui
+ * ainda não foi visto de perto: telefone, grupo, campanha e data são
+ * procurados em vários nomes prováveis, e a query sobrepõe qualquer um deles.
+ * O payload inteiro fica em `raw` SEMPRE — um campo que a gente não mapeou
+ * hoje não pode se perder, e o mapeamento melhora depois sem backfill.
+ *
+ * Dedupe por (telefone_core, grupo, evento): reenvio não vira duas entradas, o
+ * que inflaria justamente a taxa que se quer medir.
+ */
+async function registrarEntradaGrupo(url, body, env, ctx) {
+  const q = (k) => {
+    const v = url.searchParams.get(k);
+    return v == null || v === '' ? null : String(v).trim();
+  };
+
+  const telefone = onlyDigits(
+    q('telefone') || pick(body, 'telefone', 'phone', 'number', 'whatsapp',
+      'member', 'participant', 'participante', 'remoteJid', 'sender', 'from'),
+  );
+  if (!telefone) {
+    return json({ error: 'telefone obrigatorio (no corpo ou ?telefone=)' }, 400);
+  }
+
+  const grupo = q('grupo') || pick(body, 'grupo', 'group', 'group_name',
+    'groupSubject', 'subject', 'nome_grupo') || null;
+  const campanha = q('campanha') || pick(body, 'campanha', 'campaign',
+    'utm_campaign', 'tag', 'origem') || null;
+  const evento = q('evento') || pick(body, 'evento', 'event', 'type')
+    || 'group.updated.members.added';
+  const conta = q('conta') || pick(body, 'conta', 'account', 'account_id',
+    'instance', 'instance_id', 'instancia') || null;
+
+  const quando = pick(body, 'entrou_em', 'date', 'data', 'timestamp',
+    'created_at', 'updated_at', 'ts');
+  const dt = quando ? new Date(quando) : null;
+  const entrouEm = dt && !isNaN(dt.getTime()) ? dt.toISOString() : manausIso(new Date());
+
+  const row = {
+    entrou_em: entrouEm,
+    evento: String(evento),
+    conta,
+    campanha,
+    grupo,
+    telefone,
+    raw: body,
+  };
+
+  ctx.waitUntil(
+    insertRowWithRetry(env, row, 'grupo_entradas', 'telefone_core,grupo,evento').catch((err) => {
+      console.error('grupo insert failed (background):', err && err.stack ? err.stack : String(err));
+    }),
+  );
+
+  return json({ ok: true, destino: 'grupo_entradas', telefone, grupo, campanha, queued: true });
+}
+
+/** Primeiro valor não-vazio entre vários nomes prováveis, em qualquer profundidade. */
+function pick(obj, ...nomes) {
+  const alvo = new Set(nomes.map((n) => n.toLowerCase()));
+  let achado = null;
+  const visita = (o, prof) => {
+    if (achado != null || o == null || prof > 4) return;
+    if (Array.isArray(o)) { o.forEach((v) => visita(v, prof + 1)); return; }
+    if (typeof o !== 'object') return;
+    for (const [k, v] of Object.entries(o)) {
+      if (achado != null) return;
+      if (alvo.has(k.toLowerCase()) && v != null && v !== '' && typeof v !== 'object') {
+        achado = String(v); return;
+      }
+    }
+    for (const v of Object.values(o)) visita(v, prof + 1);
+  };
+  visita(obj, 0);
+  return achado;
+}
+
 // ── Supabase PostgREST insert (com retry pra absorver instabilidade) ─────────
 
 const MAX_RETRIES = 5;
@@ -236,8 +330,9 @@ async function insertRow(env, row, tabela, ignoreDuplicates) {
   const table = tabela || env.TABLE_NAME || 'manychat_eventos';
   // Com dedupe: o PostgREST precisa do on_conflict na URL E do resolution no
   // Prefer — so um dos dois devolve 409 em vez de ignorar a repeticao.
-  const qs = ignoreDuplicates ? '?on_conflict=transaction_id' : '';
-  const prefer = ignoreDuplicates
+  const conflito = ignoreDuplicates === true ? 'transaction_id' : ignoreDuplicates;
+  const qs = conflito ? `?on_conflict=${encodeURIComponent(conflito)}` : '';
+  const prefer = conflito
     ? 'return=minimal,resolution=ignore-duplicates'
     : 'return=minimal';
   const resp = await fetch(`${env.SB_URL}/rest/v1/${table}${qs}`, {
