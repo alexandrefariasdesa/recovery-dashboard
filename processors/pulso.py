@@ -128,9 +128,9 @@ MAKE_CENARIOS = {
         "desde": "—",
     },
     "carrinho_abandonado": {
-        "estado": "ativo",
+        "estado": "pausado",
         "onde": "Make · cenário de carrinho abandonado",
-        "desde": "—",
+        "desde": "22/08/2026",
     },
     "compra_posicoes": {
         "estado": "ativo",
