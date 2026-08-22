@@ -152,8 +152,15 @@ Deno.serve(async (req) => {
     // e viraria a "última compra" da pessoa — a conversão da recuperação passaria
     // a valer R$ 27 em vez dos R$ 76,90 que ela de fato pagou.
     const upsellDe = pick(g, "transaction.upsell_from", "upsell_from", "upsell_code");
-    const ehUpsell = (pick(g, "type", "transaction.type") ?? "").toLowerCase() === "upsell"
-      || !!pick(g, "transaction.upsell_from", "upsell_from");
+    // `?venda=upsell|front` na URL vence o payload. A detecção automática depende
+    // de a Payt marcar `type: "upsell"` ou mandar `upsell_from` — se uma oferta
+    // não mandar nenhum dos dois, a venda entraria como front e contaminaria a
+    // conversão (ver 0014). Cravar na URL da oferta é a trava pra esse caso.
+    const vendaParam = (url.searchParams.get("venda") ?? "").trim().toLowerCase();
+    const ehUpsell = vendaParam === "upsell" ? true
+      : vendaParam === "front" ? false
+      : ((pick(g, "type", "transaction.type") ?? "").toLowerCase() === "upsell"
+         || !!pick(g, "transaction.upsell_from", "upsell_from"));
     const compraRow: Record<string, unknown> = {
       compra_em: isNaN(compraEm.getTime()) ? new Date().toISOString() : compraEm.toISOString(),
       nome, email, telefone, valor, produto, transaction_id: transactionId,
