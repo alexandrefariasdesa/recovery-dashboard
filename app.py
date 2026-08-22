@@ -1,24 +1,28 @@
-import streamlit as st
-from datetime import datetime, timedelta, date
+"""
+app.py — entrada do painel de operação.
 
-from processors.recovery import build_recovery_dataframe
-from processors.upsell import build_upsell_dataframe
-from processors.group_followup import build_group_followup_dataframe
-from processors.manychat_engagement import build_manychat_engagement
-from processors.manychat_funil import build_funis
-from processors.venda_funil import build_venda_funil
-from processors.aula_convites import build_aula_convites
-from processors.recuperacao_migracao import build_recuperacao_migracao
-from components.recovery_tab import render_recovery_tab
-from components.upsell_tab import render_upsell_tab
-from components.group_followup_tab import render_group_followup_tab
-from components.manychat_tab import render_manychat_tab
-from components.manychat_funil_tab import render_funil_tab
-from components.venda_funil_tab import render_venda_funil_tab
-from components.aula_tab import render_aula_tab
-from components.recuperacao_migracao_tab import render_recuperacao_migracao_tab
-from components.theme import aplicar_tema, cabecalho
+Navegação em páginas (`st.navigation`), não abas. A diferença não é estética:
+`st.tabs` renderiza o conteúdo de TODAS as abas em cada interação, então o
+painel rodava as oito consultas pra mostrar uma. Com páginas, só a que está
+aberta consulta o banco.
+
+A ordem dos grupos é a ordem de quem chega no painel querendo saber algo:
+
+    OPERAÇÃO    as peças estão de pé?          (não depende de período)
+    RESULTADO   quanto rendeu no período?
+    MANYCHAT    onde as pessoas travam no fluxo?
+    MOTORES     o que cada motor está fazendo — inclusive os desligados
+
+Cada página é uma função sem argumento (é o que `st.Page` aceita); o período
+escolhido na barra lateral chega por fechamento, montado uma vez em `_pagina`.
+"""
+from datetime import date
+
+import streamlit as st
+
 from components.auth import exigir_senha
+from components.periodo import seletor_periodo
+from components.theme import aplicar_tema, cabecalho
 
 st.set_page_config(
     page_title="Recuperação · painel de operação",
@@ -29,115 +33,138 @@ st.set_page_config(
 exigir_senha()
 aplicar_tema()
 
-# O cabeçalho precisa do período escolhido logo abaixo, mas tem que aparecer
-# primeiro — reserva o lugar agora e preenche depois.
-topo = st.container()
-
-# ── Filtros de período ───────────────────────────────────────────────────────
-hoje = datetime.now().date()
-
-with st.container():
-    col_atalho, col_start, col_end, col_btn = st.columns([3, 2, 2, 1])
-
-    with col_atalho:
-        atalho = st.selectbox(
-            "Período rápido",
-            options=[
-                "Personalizado",
-                "Hoje",
-                "Ontem",
-                "Últimos 7 dias",
-                "Últimos 15 dias",
-                "Últimos 30 dias",
-                "Este mês",
-            ],
-            index=4,
-            label_visibility="visible",
-        )
-
-    # Calcula datas conforme atalho
-    if atalho == "Hoje":
-        default_start, default_end = hoje, hoje
-    elif atalho == "Ontem":
-        default_start = hoje - timedelta(days=1)
-        default_end = hoje - timedelta(days=1)
-    elif atalho == "Últimos 7 dias":
-        default_start = hoje - timedelta(days=6)
-        default_end = hoje
-    elif atalho == "Últimos 15 dias":
-        default_start = hoje - timedelta(days=14)
-        default_end = hoje
-    elif atalho == "Últimos 30 dias":
-        default_start = hoje - timedelta(days=29)
-        default_end = hoje
-    elif atalho == "Este mês":
-        default_start = hoje.replace(day=1)
-        default_end = hoje
-    else:
-        default_start = hoje - timedelta(days=14)
-        default_end = hoje
-
-    with col_start:
-        start_date: date = st.date_input(
-            "Data inicial",
-            value=default_start,
-            max_value=hoje,
-            format="DD/MM/YYYY",
-        )
-    with col_end:
-        end_date: date = st.date_input(
-            "Data final",
-            value=default_end,
-            max_value=hoje,
-            format="DD/MM/YYYY",
-        )
-    with col_btn:
-        st.markdown('<div class="op-espaco-rotulo"></div>', unsafe_allow_html=True)
-        if st.button("Atualizar", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
+start_date, end_date = seletor_periodo()
 
 if start_date > end_date:
-    st.error("A data inicial não pode ser maior que a data final.")
+    st.sidebar.error("A data inicial não pode ser maior que a final.")
     st.stop()
 
-with topo:
-    cabecalho(start_date, end_date)
+cabecalho(start_date, end_date)
 
-# ── Abas ─────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-    "Recuperações",
-    "Upsell",
-    "Grupo",
-    "Efetividade",
-    "Funil de etapas",
-    "Funil de venda",
-    "Convite da aula",
-    "Motor novo",
-])
 
-with tab1:
-    with st.spinner("Carregando dados de recuperação..."):
-        try:
-            recovery_df = build_recovery_dataframe(start_date, end_date)
-            render_recovery_tab(recovery_df)
-        except Exception as exc:
-            st.error(f"Erro ao carregar recuperações: {exc}")
-            with st.expander("Detalhes do erro"):
-                st.exception(exc)
+def _pagina(builder, renderer, carregando: str, periodo: bool = True, antes=None):
+    """Monta a função de página: carrega, renderiza, e contém o erro na página.
 
-with tab2:
-    with st.spinner("Carregando dados de upsell..."):
-        try:
-            upsell_df = build_upsell_dataframe(start_date, end_date)
-            render_upsell_tab(upsell_df)
-        except Exception as exc:
-            st.error(f"Erro ao carregar upsell: {exc}")
-            with st.expander("Detalhes do erro"):
-                st.exception(exc)
+    Antes isso era um bloco de seis linhas repetido oito vezes no fim do arquivo;
+    um erro em qualquer aba derrubava o render, mas o texto do `except` tinha que
+    ser reescrito toda vez. Aqui o contrato é um só.
+    """
+    def render():
+        if antes is not None:
+            antes()
+        with st.spinner(carregando):
+            try:
+                dados = builder(start_date, end_date) if periodo else builder()
+                renderer(dados)
+            except Exception as exc:
+                st.error(f"Não consegui carregar esta página: {exc}")
+                with st.expander("Detalhes do erro"):
+                    st.exception(exc)
+    return render
 
-with tab3:
-    # Corte padrão: início da campanha do grupo (independe do período acima)
+
+def _desligado(titulo: str, desde: str, motivo: str, religar: str):
+    """Aviso de peça desligada, pra a página não virar tabela vazia sem explicação."""
+    def aviso():
+        # "está fora do ar" em vez de "desligado/desligada": o helper serve pra
+        # peças de gênero diferente e não vale pedir a flexão a cada chamada.
+        st.warning(
+            f"**{titulo} está fora do ar desde {desde}.** {motivo}\n\n"
+            f"Pra religar: {religar}"
+        )
+        st.caption(
+            "Os dados abaixo são o histórico do que rodou — não vão avançar "
+            "enquanto a automação estiver parada."
+        )
+    return aviso
+
+
+# ── Operação ─────────────────────────────────────────────────────────────────
+def _pulso():
+    from processors.pulso import build_pulso
+    from components.pulso_tab import render_pulso_tab
+    return _pagina(build_pulso, render_pulso_tab, "Lendo o estado da operação...",
+                   periodo=False)()
+
+
+# ── Resultado ────────────────────────────────────────────────────────────────
+def _recuperacoes():
+    from processors.recovery import build_recovery_dataframe
+    from components.recovery_tab import render_recovery_tab
+    return _pagina(build_recovery_dataframe, render_recovery_tab,
+                   "Carregando recuperações...")()
+
+
+def _upsell():
+    from processors.upsell import build_upsell_dataframe
+    from components.upsell_tab import render_upsell_tab
+    return _pagina(build_upsell_dataframe, render_upsell_tab, "Carregando upsell...")()
+
+
+# ── ManyChat ─────────────────────────────────────────────────────────────────
+def _efetividade():
+    from processors.manychat_engagement import build_manychat_engagement
+    from components.manychat_tab import render_manychat_tab
+    return _pagina(build_manychat_engagement, render_manychat_tab,
+                   "Carregando efetividade...")()
+
+
+def _funil_etapas():
+    from processors.manychat_funil import build_funis
+    from components.manychat_funil_tab import render_funil_tab
+    return _pagina(build_funis, render_funil_tab, "Carregando funil de etapas...")()
+
+
+def _funil_venda():
+    from processors.venda_funil import build_venda_funil
+    from components.venda_funil_tab import render_venda_funil_tab
+    return _pagina(build_venda_funil, render_venda_funil_tab,
+                   "Carregando funil de venda...")()
+
+
+# ── Motores ──────────────────────────────────────────────────────────────────
+def _motor_recuperacao():
+    from processors.recuperacao_migracao import build_recuperacao_migracao
+    from components.recuperacao_migracao_tab import render_recuperacao_migracao_tab
+    return _pagina(build_recuperacao_migracao, render_recuperacao_migracao_tab,
+                   "Carregando motor de recuperação...")()
+
+
+def _convite_aula():
+    from processors.aula_convites import build_aula_convites
+    from components.aula_tab import render_aula_tab
+    return _pagina(
+        build_aula_convites, render_aula_tab, "Carregando convites da aula...",
+        antes=_desligado(
+            "O convite da aula",
+            "22/08/2026",
+            "A grade do pg_cron continua batendo na hora certa, mas "
+            "`convites_aula_config.ativo` está `false` — a edge function não manda "
+            "nada, e a tabela `convites_aula` está zerada. A lista horária que "
+            "alimentava o Make (`aula-dispatch.yml`) também foi desligada: a coluna "
+            "`aula_chamada_em` nunca teve uma linha preenchida.",
+            "vire `ativo` pra `true` em `convites_aula_config` depois de conferir "
+            "`MC_TOKEN` e o `flow_ns` de cada etapa.",
+        ),
+    )()
+
+
+def _grupo():
+    from processors.group_followup import build_group_followup_dataframe
+    from components.group_followup_tab import render_group_followup_tab
+
+    _desligado(
+        "A 2ª chamada pro grupo",
+        "22/08/2026",
+        "A tarefa do Windows que marcava a elegibilidade foi desabilitada porque o "
+        "cenário do Make parou de consumir: `segunda_chamada_em` travou em 05/06 "
+        "com 32.290 pessoas paradas como elegíveis. A lista abaixo continua "
+        "valendo como consulta manual de quem comprou e não entrou no grupo.",
+        "reative o cenário no Make e rode "
+        "`Enable-ScheduledTask -TaskName RecoveryDashboard-GroupFollowup`.",
+    )()
+
+    hoje = date.today()
     cutoff = st.date_input(
         "Considerar compras a partir de",
         value=date(2026, 5, 10),
@@ -147,59 +174,31 @@ with tab3:
     )
     with st.spinner("Carregando pendentes de 2ª chamada..."):
         try:
-            grupo_df = build_group_followup_dataframe(hoje, cutoff)
-            render_group_followup_tab(grupo_df, cutoff)
+            render_group_followup_tab(build_group_followup_dataframe(hoje, cutoff), cutoff)
         except Exception as exc:
-            st.error(f"Erro ao carregar segmento do grupo: {exc}")
+            st.error(f"Não consegui carregar esta página: {exc}")
             with st.expander("Detalhes do erro"):
                 st.exception(exc)
 
-with tab4:
-    with st.spinner("Carregando efetividade do ManyChat..."):
-        try:
-            mc_data = build_manychat_engagement(start_date, end_date)
-            render_manychat_tab(mc_data)
-        except Exception as exc:
-            st.error(f"Erro ao carregar efetividade do ManyChat: {exc}")
-            with st.expander("Detalhes do erro"):
-                st.exception(exc)
 
-with tab5:
-    with st.spinner("Carregando funil de etapas do ManyChat..."):
-        try:
-            funil_data = build_funis(start_date, end_date)
-            render_funil_tab(funil_data)
-        except Exception as exc:
-            st.error(f"Erro ao carregar funil de etapas: {exc}")
-            with st.expander("Detalhes do erro"):
-                st.exception(exc)
-
-with tab6:
-    with st.spinner("Carregando funil de venda (disparo API)..."):
-        try:
-            venda_data = build_venda_funil(start_date, end_date)
-            render_venda_funil_tab(venda_data)
-        except Exception as exc:
-            st.error(f"Erro ao carregar funil de venda: {exc}")
-            with st.expander("Detalhes do erro"):
-                st.exception(exc)
-
-with tab7:
-    with st.spinner("Carregando convites da aula..."):
-        try:
-            aula_data = build_aula_convites(start_date, end_date)
-            render_aula_tab(aula_data)
-        except Exception as exc:
-            st.error(f"Erro ao carregar convites da aula: {exc}")
-            with st.expander("Detalhes do erro"):
-                st.exception(exc)
-
-with tab8:
-    with st.spinner("Carregando motor de recuperação..."):
-        try:
-            recup_data = build_recuperacao_migracao(start_date, end_date)
-            render_recuperacao_migracao_tab(recup_data)
-        except Exception as exc:
-            st.error(f"Erro ao carregar motor de recuperação: {exc}")
-            with st.expander("Detalhes do erro"):
-                st.exception(exc)
+st.navigation({
+    "Operação": [
+        # Sem `url_path`: a página padrão mora na raiz, e declarar um caminho
+        # pra ela faz o Streamlit responder "Page not found" no link direto.
+        st.Page(_pulso, title="Pulso", default=True),
+    ],
+    "Resultado": [
+        st.Page(_recuperacoes, title="Recuperações", url_path="recuperacoes"),
+        st.Page(_upsell, title="Upsell", url_path="upsell"),
+    ],
+    "ManyChat": [
+        st.Page(_efetividade, title="Efetividade", url_path="efetividade"),
+        st.Page(_funil_etapas, title="Funil de etapas", url_path="funil-etapas"),
+        st.Page(_funil_venda, title="Funil de venda", url_path="funil-venda"),
+    ],
+    "Motores": [
+        st.Page(_motor_recuperacao, title="Recuperação", url_path="motor-recuperacao"),
+        st.Page(_convite_aula, title="Convite da aula", url_path="convite-aula"),
+        st.Page(_grupo, title="Grupo", url_path="grupo"),
+    ],
+}).run()

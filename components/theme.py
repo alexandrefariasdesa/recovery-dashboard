@@ -118,6 +118,60 @@ h3 {{ font-size: 1.05rem !important; font-weight: 600 !important; }}
 }}
 .op-grade span {{ color: var(--tinta-2); font-weight: 400; }}
 
+/* ── Pulso: uma peça por cartão ────────────────────────────────────────── */
+/* A régua da esquerda carrega o veredito, então o cartão pode ficar sóbrio:
+   quem varre a página lê a coluna de cor antes de ler qualquer número. */
+.op-pulso {{
+  display: grid; gap: .6rem; margin: .4rem 0 .2rem;
+  grid-template-columns: repeat(auto-fit, minmax(268px, 1fr));
+}}
+.op-peca {{
+  background: var(--superficie); border: 1px solid var(--linha);
+  border-left: 3px solid var(--ardosia); padding: .7rem .9rem .8rem;
+}}
+.op-peca[data-estado="ok"]      {{ border-left-color: var(--pix); }}
+.op-peca[data-estado="atraso"]  {{ border-left-color: var(--ambar); }}
+.op-peca[data-estado="erro"]    {{ border-left-color: var(--vermelho); }}
+.op-peca[data-estado="mudo"]    {{ border-left-color: var(--ardosia); }}
+.op-peca-topo {{
+  display: flex; align-items: baseline; justify-content: space-between; gap: .5rem;
+}}
+.op-peca-nome {{
+  font-family: var(--mono); font-size: .65rem; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--tinta-2);
+}}
+.op-peca-tag {{
+  font-family: var(--mono); font-size: .6rem; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--tinta-2); white-space: nowrap;
+}}
+.op-peca[data-estado="ok"]     .op-peca-tag {{ color: var(--pix); }}
+.op-peca[data-estado="atraso"] .op-peca-tag {{ color: var(--ambar); }}
+.op-peca[data-estado="erro"]   .op-peca-tag {{ color: var(--vermelho); }}
+.op-peca-valor {{
+  font-family: var(--mono); font-size: 1.5rem; font-weight: 600;
+  letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
+  margin: .2rem 0 .35rem; line-height: 1.1;
+}}
+.op-peca-linha {{
+  font-size: .8rem; color: var(--tinta-2); line-height: 1.5;
+}}
+.op-peca-linha b {{ color: var(--tinta); font-weight: 600; font-family: var(--mono); }}
+.op-peca-quem {{ font-size: .74rem; opacity: .85; }}
+
+/* ── Navegação lateral: lista, não menu ────────────────────────────────── */
+[data-testid="stSidebarNav"] ul {{ gap: 0; }}
+[data-testid="stSidebarNav"] a span {{
+  font-family: var(--mono); font-size: .72rem; letter-spacing: .05em;
+}}
+[data-testid="stSidebarNav"] div[class*="separator"], 
+section[data-testid="stSidebar"] h2 {{
+  font-family: var(--mono) !important; font-size: .62rem !important;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--tinta-2) !important;
+}}
+section[data-testid="stSidebar"] {{
+  background: var(--superficie); border-right: 1px solid var(--linha);
+}}
+
 /* ── Métricas viram cartões ────────────────────────────────────────────── */
 [data-testid="stMetric"] {{
   background: var(--superficie); border: 1px solid var(--linha);
