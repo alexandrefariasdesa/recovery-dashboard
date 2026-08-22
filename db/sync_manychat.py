@@ -155,8 +155,12 @@ def map_cliques(low):
             "tipo": clean_tipo(low.get("tipo")), "url": (low.get("url") or None)}
 
 
+# Desde 2026-08-12 o recovery-flow-tracker grava os EVENTOS direto no Postgres
+# (PostgREST), entao a aba `eventos_manychat` esta congelada e nao precisa mais
+# de sync. Sobrou so o clique, que o manychat-click-tracker ainda escreve no
+# Sheets. Se um dia o clique tambem for direto pro banco, este job morre inteiro.
 SOURCES = [
-    ("eventos_manychat", "manychat_eventos", map_eventos),
+    # ("eventos_manychat", "manychat_eventos", map_eventos),  # aposentada em 22/08/2026
     ("cliques_manychat", "manychat_cliques", map_cliques),
 ]
 

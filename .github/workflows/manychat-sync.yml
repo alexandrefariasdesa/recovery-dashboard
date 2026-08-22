@@ -1,9 +1,12 @@
 name: Sync ManyChat - Sheets para Postgres
 
-# Fecha o "live-gap": os Cloudflare Workers gravam os eventos de ManyChat SO no
+# Fecha o "live-gap" que sobrou: o manychat-click-tracker grava os CLIQUES so no
 # Google Sheets, e o dashboard (com USE_POSTGRES=1) le do Postgres. Este job traz
 # as linhas novas do Sheets pro banco de tempos em tempos. Incremental por cursor
 # (tabela sync_state) — nao duplica. Nao envia nada, nao toca no Make.
+#
+# Os EVENTOS sairam daqui em 22/08/2026: desde 12/08 o recovery-flow-tracker
+# grava direto no Postgres, entao a aba `eventos_manychat` esta congelada.
 #
 # Pre-requisitos (Settings > Secrets and variables > Actions):
 #   GCP_SA_JSON      = conteudo do service_account.json (ja existe p/ o aula-dispatch)
@@ -11,7 +14,7 @@ name: Sync ManyChat - Sheets para Postgres
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # a cada 15 min
+    - cron: "*/30 * * * *"   # a cada 30 min
   workflow_dispatch: {}       # botao "Run workflow" p/ rodar manual
 
 concurrency:
