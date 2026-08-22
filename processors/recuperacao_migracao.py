@@ -31,7 +31,10 @@ STATUS_ORDEM = ["agendado", "simulado", "enviado", "cancelado", "erro"]
 def build_recuperacao_migracao(start_date: date, end_date: date) -> dict:
     ini, fim = start_date.isoformat(), end_date.isoformat()
 
-    config = _read("select tipo, modo, desde, max_por_dia from recuperacao_config order by tipo")
+    config = _read("""
+        select tipo, modo, origem, produto_like, desde, max_por_dia
+        from recuperacao_config order by origem, tipo
+    """)
     etapas = _read("""
         select tipo, etapa, ordem, atraso::text as atraso, template, flow_ns,
                texto_p1, texto_p2, ativo
@@ -39,14 +42,20 @@ def build_recuperacao_migracao(start_date: date, end_date: date) -> dict:
     """)
     testes = _read("select telefone_core, nome from recuperacao_teste_telefones order by criado_em")
 
+    # Duas origens desde o 0009: PIX/boleto/carrinho nascem de recovery_events,
+    # boas-vindas nasce de compras. O disparo aponta pra uma das duas.
     disparos = _read(f"""
         select d.id, d.tipo, d.etapa, d.status, coalesce(d.motivo, '') as motivo,
                d.quando_enviar, d.enviado_em, d.tentativas, coalesce(d.erro, '') as erro,
                coalesce(d.preview, '') as preview, d.telefone_core,
-               ev.nome, ev.valor, ev.evento_em
+               coalesce(ev.nome, c.nome)   as nome,
+               coalesce(ev.valor, c.valor) as valor,
+               coalesce(ev.evento_em, c.compra_em) as evento_em
         from recuperacao_disparos d
-        join recovery_events ev on ev.id = d.evento_id
-        where (ev.evento_em at time zone 'America/Sao_Paulo')::date between '{ini}' and '{fim}'
+        left join recovery_events ev on ev.id = d.evento_id
+        left join compras         c  on c.id  = d.compra_id
+        where (coalesce(ev.evento_em, c.compra_em) at time zone 'America/Sao_Paulo')::date
+              between '{ini}' and '{fim}'
     """)
 
     if not disparos.empty:

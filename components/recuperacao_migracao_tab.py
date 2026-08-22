@@ -73,9 +73,14 @@ def render_recuperacao_migracao_tab(data: dict) -> None:
     if not config.empty:
         vis = config.assign(
             Tipo=config["tipo"],
+            Nasce_de=config["origem"].map(
+                {"evento": "evento (PIX/boleto/carrinho)", "compra": "compra aprovada"}
+            ).fillna(config["origem"]),
             Modo=config["modo"].map(lambda m: _MODO_LABEL.get(m, m)),
             **{"Agenda a partir de": config["desde"]},
-        )[["Tipo", "Modo", "Agenda a partir de"]]
+        ).rename(columns={"Nasce_de": "Nasce de"})[
+            ["Tipo", "Nasce de", "Modo", "Agenda a partir de"]
+        ]
         st.dataframe(vis, use_container_width=True, hide_index=True)
     st.caption(
         "Pra virar a chave de um tipo: "
