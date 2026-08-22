@@ -14,7 +14,7 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-from processors.pulso import _humano
+from processors.pulso import TIPOS_DESATIVADOS as _DESATIVADOS, _humano
 
 
 _ROTULO_ESTADO = {
@@ -28,6 +28,7 @@ _ESTADO_TIPO = {
     "ok": "chegando",
     "atraso": "atrasado",
     "parado": "parado (7d+)",
+    "desativado": "desligado de propósito",
     "pouco dado": "pouco histórico",
     "mudo": "sem dado",
 }
@@ -134,8 +135,16 @@ def render_pulso_tab(data: dict) -> None:
             )
             st.caption(
                 "*Normal desta origem* é o p99 dos intervalos dos últimos 30 dias — "
-                "cada tipo é comparado com o próprio ritmo, não com um número fixo."
+                "cada tipo é comparado com o próprio ritmo, não com um número fixo. "
+                "Quando o ritmo real é conhecido (fonte que chega em lote), o limite "
+                "é declarado no código e aparece abaixo."
             )
+            declarados = tipos[tipos["limite_declarado"].notna()]
+            for _, t in declarados.iterrows():
+                st.caption(f"· `{t['tipo']}`: limite de {_humano(t['limite_h'])} — {t['limite_declarado']}.")
+            for tipo, porque in _DESATIVADOS.items():
+                if tipo in set(tipos["tipo"]):
+                    st.caption(f"· `{tipo}`: desligado de propósito — {porque}.")
 
     st.divider()
 

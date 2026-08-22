@@ -144,6 +144,21 @@ MAKE_CENARIOS = {
     },
 }
 
+# Onde o operador sabe mais que a estatística. O p99 dos intervalos é uma boa
+# régua pra fonte que chega o dia todo, mas mente pra fonte em lote: a Payt varre
+# os vencidos de tempos em tempos e passar um dia inteiro sem nenhum expirado é
+# normal, não é queda. Aqui o número é declarado, com o porquê.
+LIMITE_TIPO = {
+    # "assim mesmo, não dispara toda hora" — confirmado pelo usuário em 22/08.
+    "pix_expirado": {"limite_h": 24, "porque": "a Payt manda os vencidos em lote, não de hora em hora"},
+}
+
+# Tipos desligados de propósito. Não adianta alertar todo dia por uma fonte que
+# ninguém espera de volta — ela aparece como desligada, não como quebrada.
+TIPOS_DESATIVADOS = {
+    "boleto_expirado": "boleto saiu como forma de pagamento (sem um evento desde 05/08/2026)",
+}
+
 _MODO_ORDEM = {"ligado": 0, "teste": 1, "simulado": 2, "off": 3}
 
 
@@ -355,17 +370,26 @@ def _classificar_tipos(df: pd.DataFrame) -> pd.DataFrame:
         return df
     df = df.copy()
     df["horas"] = df["ultima"].map(_horas_desde)
-    # Menos de 30 intervalos em 30 dias é pouco pra ter ritmo — não dá pra
-    # acusar atraso com essa base, então a fonte fica em observação.
-    df["limite_h"] = df.apply(
-        lambda r: max(float(r["p99_h"]), 2.0)
-        if pd.notna(r["p99_h"]) and r["intervalos"] >= 30 else None,
-        axis=1,
-    )
+
+    def limite(r):
+        # Declarado ganha do medido: quem opera a fonte sabe se o silêncio é ritmo.
+        if r["tipo"] in LIMITE_TIPO:
+            return float(LIMITE_TIPO[r["tipo"]]["limite_h"])
+        # Menos de 30 intervalos em 30 dias é pouco pra ter ritmo — não dá pra
+        # acusar atraso com essa base, então a fonte fica em observação.
+        if pd.notna(r["p99_h"]) and r["intervalos"] >= 30:
+            return max(float(r["p99_h"]), 2.0)
+        return None
+
+    df["limite_h"] = df.apply(limite, axis=1)
+    df["limite_declarado"] = df["tipo"].map(
+        lambda t: LIMITE_TIPO.get(t, {}).get("porque"))
 
     def estado(r):
+        if r["tipo"] in TIPOS_DESATIVADOS:
+            return "desativado"      # parou porque foi desligado, não porque caiu
         if r["d7"] == 0:
-            return "parado"          # não chega há uma semana: fonte desligada
+            return "parado"          # não chega há uma semana e ninguém avisou
         if r["limite_h"] is None:
             return "pouco dado"
         if r["horas"] is None:
@@ -397,10 +421,12 @@ def build_pulso() -> dict:
     # Um tipo pode morrer dentro de uma tabela que continua crescendo.
     for _, t in (tipos.iterrows() if not tipos.empty else []):
         if t["estado"] == "atraso":
+            regua = (t["limite_declarado"] if t["limite_declarado"]
+                     else "p99 dos intervalos de 30 dias")
             alertas.append(
                 f"Evento **{t['tipo']}** sem chegar há {_humano(t['horas'])} — "
                 f"o normal desta origem é no máximo {_humano(t['limite_h'])} "
-                f"(p99 de 30 dias). A tabela segue recebendo os outros tipos."
+                f"({regua}). A tabela segue recebendo os outros tipos."
             )
         elif t["estado"] == "parado":
             alertas.append(
