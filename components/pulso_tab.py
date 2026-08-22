@@ -36,6 +36,7 @@ _ESTADO_TIPO = {
 _FORA_LABEL = {
     "ativo": "ainda manda",
     "pausado": "pausado",
+    "sem cenário": "não existe mais",
     "desconhecido": "não declarado",
 }
 

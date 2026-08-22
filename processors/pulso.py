@@ -112,34 +112,37 @@ EXTERNAS = [
 # DECLARADO, no mesmo espírito de EXTERNAS: serve pra cruzar com o modo do motor
 # e gritar a única combinação perigosa, "ligado aqui E ligado lá" (mensagem dupla).
 MAKE_CENARIOS = {
+    # Lista confirmada pelo usuário em 22/08/2026: os cenários ATIVOS no Make
+    # hoje são compra aprovada (Posições), compra aprovada (Protocolo) e PIX
+    # expirado (Posições). O resto já saiu de lá.
     "pix_gerado": {
         "estado": "pausado",
         "onde": "Make · cenário PIX/boleto gerado",
         "desde": "21/08/2026",
-    },
-    "pix_expirado": {
-        "estado": "ativo",
-        "onde": "Make · cenário PIX/boleto expirado",
-        "desde": "—",
-    },
-    "boleto_expirado": {
-        "estado": "ativo",
-        "onde": "Make · cenário PIX/boleto expirado (mesmo fluxo do pix_expirado)",
-        "desde": "—",
     },
     "carrinho_abandonado": {
         "estado": "pausado",
         "onde": "Make · cenário de carrinho abandonado",
         "desde": "22/08/2026",
     },
+    "pix_expirado": {
+        "estado": "ativo",
+        "onde": "Make · cenário PIX expirado (Posições)",
+        "desde": "—",
+    },
+    "boleto_expirado": {
+        "estado": "sem cenário",
+        "onde": "ninguém — o boleto saiu como forma de pagamento",
+        "desde": "05/08/2026",
+    },
     "compra_posicoes": {
         "estado": "ativo",
-        "onde": "automação de compra aprovada → BOAS VINDAS PS",
+        "onde": "Make · compra aprovada (Posições) → BOAS VINDAS PS",
         "desde": "—",
     },
     "compra_protocolo": {
         "estado": "ativo",
-        "onde": "automação de compra aprovada → BOAS VINDAS PP",
+        "onde": "Make · compra aprovada (Protocolo) → BOAS VINDAS PP",
         "desde": "—",
     },
 }
