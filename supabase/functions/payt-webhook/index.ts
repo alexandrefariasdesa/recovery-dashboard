@@ -144,9 +144,21 @@ Deno.serve(async (req) => {
     );
     const transactionId = pick(g, "transaction_id", "transaction.transaction_id", "id");
     const produto = pick(g, "product.name", "transaction.product.name", "product_name");
+
+    // UPSELL: a operação roda vários (Protocolo do Prazer, Safada na Hora Certa,
+    // entre outros) e cada um é uma TRANSAÇÃO PRÓPRIA na Payt, com `type:
+    // "upsell"` no topo e `transaction.upsell_from` apontando pra compra que o
+    // gerou. Sem separar, o upsell entraria como se fosse uma compra de entrada
+    // e viraria a "última compra" da pessoa — a conversão da recuperação passaria
+    // a valer R$ 27 em vez dos R$ 76,90 que ela de fato pagou.
+    const upsellDe = pick(g, "transaction.upsell_from", "upsell_from", "upsell_code");
+    const ehUpsell = (pick(g, "type", "transaction.type") ?? "").toLowerCase() === "upsell"
+      || !!pick(g, "transaction.upsell_from", "upsell_from");
     const compraRow: Record<string, unknown> = {
       compra_em: isNaN(compraEm.getTime()) ? new Date().toISOString() : compraEm.toISOString(),
       nome, email, telefone, valor, produto, transaction_id: transactionId,
+      tipo: ehUpsell ? "upsell" : "front",
+      upsell_de: ehUpsell ? upsellDe : null,
     };
     // Upsert por transaction_id: reenvio da Payt não duplica a compra (o que
     // inflaria a conversão). Sem transaction_id, insere direto.
@@ -154,7 +166,7 @@ Deno.serve(async (req) => {
       ? await admin.from("compras").upsert(compraRow, { onConflict: "transaction_id", ignoreDuplicates: true })
       : await admin.from("compras").insert(compraRow);
     if (error) { console.error("payt-webhook compras:", error.message); return json({ error: error.message }, 500); }
-    return json({ ok: true, stored: true, destino: "compras", telefone, valor });
+    return json({ ok: true, stored: true, destino: "compras", tipo: compraRow.tipo, telefone, valor });
   }
 
   // ── EVENTO DE RECUPERAÇÃO → tabela `recovery_events` ──────────────────────

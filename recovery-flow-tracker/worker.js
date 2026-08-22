@@ -165,6 +165,11 @@ async function registrarCompra(url, body, env, ctx) {
   if (!produto) {
     return json({ error: 'produto obrigatorio (?produto=...)' }, 400);
   }
+  // A operacao roda varios upsells (Protocolo do Prazer, Safada na Hora Certa,
+  // entre outros). Quem chega por aqui e' upsell na pratica, mas o padrao fica
+  // 'front' pra rota nao decidir sozinha o que e' a venda de outra pessoa.
+  const tipo = (url.searchParams.get('tipo') || 'front').toLowerCase() === 'upsell'
+    ? 'upsell' : 'front';
   const valorParam = url.searchParams.get('valor');
   const valor = valorParam != null && valorParam !== '' && !isNaN(Number(valorParam))
     ? Number(valorParam)
@@ -190,6 +195,8 @@ async function registrarCompra(url, body, env, ctx) {
     telefone: telefone || null,
     valor,
     produto,
+    tipo,
+    upsell_de: url.searchParams.get('upsell_de') || null,
     transaction_id: `mc-${slug(produto)}-${subscriberId || telefone}-${agora.slice(0, 10)}`,
     raw: {
       origem: 'manychat',
@@ -207,7 +214,7 @@ async function registrarCompra(url, body, env, ctx) {
     }),
   );
 
-  return json({ ok: true, destino: 'compras', produto, telefone, valor, queued: true });
+  return json({ ok: true, destino: 'compras', produto, tipo, telefone, valor, queued: true });
 }
 
 function slug(v) {
