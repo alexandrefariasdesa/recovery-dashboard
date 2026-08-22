@@ -254,17 +254,21 @@ async function registrarEntradaGrupo(url, body, env, ctx) {
     return json({ error: 'telefone obrigatorio (no corpo ou ?telefone=)' }, 400);
   }
 
-  const grupo = q('grupo') || pick(body, 'grupo', 'group', 'group_name',
-    'groupSubject', 'subject', 'nome_grupo') || null;
-  const campanha = q('campanha') || pick(body, 'campanha', 'campaign',
-    'utm_campaign', 'tag', 'origem') || null;
+  const grupo = q('grupo') || pick(body, 'grupo', 'group_name', 'group_subject',
+    'subject', 'nome_grupo', 'group') || null;
+  const campanha = q('campanha') || pick(body, 'campanha', 'campaign_name',
+    'utm_campaign', 'tag', 'origem', 'campaign') || null;
+  const campanhaId = q('campanha_id') || pick(body, 'campaign_id', 'campanha_id') || null;
+  const grupoId = q('grupo_id') || pick(body, 'group_id', 'group_jid', 'grupo_id') || null;
   const evento = q('evento') || pick(body, 'evento', 'event', 'type')
     || 'group.updated.members.added';
   const conta = q('conta') || pick(body, 'conta', 'account', 'account_id',
     'instance', 'instance_id', 'instancia') || null;
 
-  const quando = pick(body, 'entrou_em', 'date', 'data', 'timestamp',
-    'created_at', 'updated_at', 'ts');
+  // O SendFlow manda as duas: `createdAt` (UTC) e `createdAt_with_timezone_br`.
+  // A com fuso vem primeiro — é a que não depende de o parser adivinhar o Z.
+  const quando = pick(body, 'created_at_with_timezone_br', 'entrou_em', 'date',
+    'timestamp', 'created_at', 'updated_at', 'ts');
   const dt = quando ? new Date(quando) : null;
   const entrouEm = dt && !isNaN(dt.getTime()) ? dt.toISOString() : manausIso(new Date());
 
@@ -273,23 +277,32 @@ async function registrarEntradaGrupo(url, body, env, ctx) {
     evento: String(evento),
     conta,
     campanha,
+    campanha_id: campanhaId,
     grupo,
+    grupo_id: grupoId,
     telefone,
     raw: body,
   };
 
   ctx.waitUntil(
-    insertRowWithRetry(env, row, 'grupo_entradas', 'telefone_core,grupo,evento').catch((err) => {
+    insertRowWithRetry(env, row, 'grupo_entradas', 'telefone_core,grupo_chave,evento').catch((err) => {
       console.error('grupo insert failed (background):', err && err.stack ? err.stack : String(err));
     }),
   );
 
-  return json({ ok: true, destino: 'grupo_entradas', telefone, grupo, campanha, queued: true });
+  return json({ ok: true, destino: 'grupo_entradas', telefone, grupo, campanha,
+                campanha_id: campanhaId, queued: true });
 }
 
-/** Primeiro valor não-vazio entre vários nomes prováveis, em qualquer profundidade. */
+/** Primeiro valor não-vazio entre vários nomes prováveis, em qualquer profundidade.
+ *
+ * A comparação ignora maiúsculas E separadores, então `group_name` casa com
+ * `groupName` e `campaign_id` com `campaignId`. Foi o que faltou no primeiro
+ * teste real: o SendFlow manda tudo em camelCase e metade do payload não foi
+ * mapeada por causa de um underscore. */
 function pick(obj, ...nomes) {
-  const alvo = new Set(nomes.map((n) => n.toLowerCase()));
+  const chave = (n) => String(n).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const alvo = new Set(nomes.map(chave));
   let achado = null;
   const visita = (o, prof) => {
     if (achado != null || o == null || prof > 4) return;
@@ -297,7 +310,7 @@ function pick(obj, ...nomes) {
     if (typeof o !== 'object') return;
     for (const [k, v] of Object.entries(o)) {
       if (achado != null) return;
-      if (alvo.has(k.toLowerCase()) && v != null && v !== '' && typeof v !== 'object') {
+      if (alvo.has(chave(k)) && v != null && v !== '' && typeof v !== 'object') {
         achado = String(v); return;
       }
     }
