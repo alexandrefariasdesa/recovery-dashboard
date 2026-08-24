@@ -213,13 +213,20 @@ Deno.serve(async (req) => {
       // Número que o WhatsApp recusa não melhora tentando de novo: desiste na
       // hora, pra 'erro' no painel querer dizer "número ruim" e não "esperando".
       const msg = String(e);
+      // "Subscriber is not active": o contato existe mas saiu da lista/bloqueou.
+      // Não é falha nossa e não melhora tentando — o Make bate na mesma parede.
       const permanente = msg.includes("not a valid WhatsApp ID") ||
                          msg.includes("telefone inválido") ||
+                         msg.includes("Subscriber is not active") ||
                          msg.includes("sem flow_ns");
       const desiste = permanente || tentativas >= MAX_TENTATIVAS;
+      const motivo = msg.includes("Subscriber is not active") ? "contato inativo no ManyChat"
+                   : msg.includes("not a valid WhatsApp ID") || msg.includes("telefone inválido")
+                     ? "telefone inválido" : null;
       Object.assign(upd, {
         status: desiste ? "erro" : "agendado",
         erro: String(e).slice(0, 500),
+        ...(motivo ? { motivo } : {}),
         ...(desiste ? {} : {
           quando_enviar: new Date(Date.now() + tentativas * 10 * 60_000).toISOString(),
         }),
