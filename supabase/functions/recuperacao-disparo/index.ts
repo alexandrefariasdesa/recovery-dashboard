@@ -30,6 +30,12 @@ const MC_TOKEN = Deno.env.get("MC_TOKEN") ?? "";
 // Campos que formam o corpo de todo template aprovado da conta.
 const F_P1 = 13923586;
 const F_P2 = 13923587;
+// Campo "whatsapp": é POR ELE que se acha um contato de WhatsApp já existente.
+// A API do ManyChat não acha contato de canal WhatsApp por telefone —
+// findBySystemField?phone= devolve [] mesmo com o contato lá dentro (testado
+// com e sem "+", com e sem o 9, e findByName). O caminho é o mesmo que o Make
+// usa: findByCustomField no campo abaixo, com o número em 55+DDD+9dígitos SEM "+".
+const F_WHATSAPP = 13936072;
 
 const MAX_POR_CHAMADA = 80;
 const MAX_TENTATIVAS = 4;
@@ -66,6 +72,16 @@ async function mc(method: "GET" | "POST", path: string, payload?: Record<string,
 }
 
 async function subscriberId(wa: string, nome: string): Promise<string> {
+  // 1) já existe? O campo `whatsapp` é a única chave que a API aceita pra
+  //    contato de WhatsApp (ver F_WHATSAPP). Formato: 55DDD9XXXXXXXX, sem "+".
+  const achado = await mc("GET", "/fb/subscriber/findByCustomField", {
+    field_id: F_WHATSAPP, field_value: wa,
+  });
+  const lista = (achado.data?.data as Array<Record<string, unknown>> | undefined) ?? [];
+  if (achado.ok && lista.length > 0 && lista[0]?.id) return String(lista[0].id);
+
+  // 2) não existe: cria e CARIMBA o campo, senão o contato nasce invisível pro
+  //    passo 1 e a próxima mensagem pra essa pessoa volta a falhar.
   const partes = (nome ?? "").trim().split(/\s+/);
   const criado = await mc("POST", "/fb/subscriber/createSubscriber", {
     whatsapp_phone: "+" + wa,
@@ -75,15 +91,24 @@ async function subscriberId(wa: string, nome: string): Promise<string> {
     consent_phrase: "Recuperacao de compra (Payt)",
   });
   const idCriado = (criado.data?.data as Record<string, unknown> | undefined)?.id;
-  if (criado.ok && idCriado) return String(idCriado);
+  if (criado.ok && idCriado) {
+    await mc("POST", "/fb/subscriber/setCustomField", {
+      subscriber_id: String(idCriado), field_id: F_WHATSAPP, field_value: wa,
+    });
+    return String(idCriado);
+  }
 
-  const achado = await mc("GET", "/fb/subscriber/findBySystemField", { phone: "+" + wa });
-  const idAchado = (achado.data?.data as Record<string, unknown> | undefined)?.id;
-  if (achado.ok && idAchado) return String(idAchado);
+  // 3) createSubscriber dizendo "already exists" com o passo 1 vazio = contato
+  //    antigo, de antes do carimbo. Segunda busca cobre corrida entre crons.
+  const retry = await mc("GET", "/fb/subscriber/findByCustomField", {
+    field_id: F_WHATSAPP, field_value: wa,
+  });
+  const lista2 = (retry.data?.data as Array<Record<string, unknown>> | undefined) ?? [];
+  if (retry.ok && lista2.length > 0 && lista2[0]?.id) return String(lista2[0].id);
 
   throw new Error(
     `createSubscriber(${criado.http}): ${JSON.stringify(criado.data).slice(0, 300)} | ` +
-    `find(${achado.http}): ${JSON.stringify(achado.data).slice(0, 200)}`,
+    `findByCustomField(${achado.http}): ${JSON.stringify(achado.data).slice(0, 200)}`,
   );
 }
 
@@ -181,7 +206,18 @@ Deno.serve(async (req) => {
       });
       enviados++;
     } catch (e) {
-      Object.assign(upd, { status: "erro", erro: String(e).slice(0, 500) });
+      // Erro não é ponto final enquanto houver tentativa: volta pra fila com
+      // espera crescente (10, 20, 30 min). `status='erro'` passa a significar
+      // "desisti depois de MAX_TENTATIVAS", que é o que o painel deve mostrar.
+      const tentativas = (l.tentativas ?? 0) + 1;
+      const desiste = tentativas >= MAX_TENTATIVAS;
+      Object.assign(upd, {
+        status: desiste ? "erro" : "agendado",
+        erro: String(e).slice(0, 500),
+        ...(desiste ? {} : {
+          quando_enviar: new Date(Date.now() + tentativas * 10 * 60_000).toISOString(),
+        }),
+      });
       falhas++;
       console.error(`recuperacao disparo=${l.disparo_id} (${l.tipo}/${l.etapa}):`, String(e).slice(0, 400));
     }

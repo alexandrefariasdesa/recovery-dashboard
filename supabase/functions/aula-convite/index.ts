@@ -44,6 +44,9 @@ const MC_LINK_FIELD = Deno.env.get("MC_LINK_FIELD") ?? "link_sala";
 // Campos que formam o corpo de TODO template aprovado da conta.
 const F_P1 = 13923586;
 const F_P2 = 13923587;
+// Campo "whatsapp": única chave que acha contato de canal WhatsApp na API do
+// ManyChat (findBySystemField?phone= devolve [] mesmo com o contato lá dentro).
+const F_WHATSAPP = 13936072;
 
 const LINK_BASE = "https://luizavitoria.applive.com.br/mulher-inesquecivel-v2/lp";
 const MAX_POR_CHAMADA = 80;   // por invocação; o cron invoca em sequência até drenar
@@ -86,8 +89,20 @@ async function mc(method: "GET" | "POST", path: string, payload?: Record<string,
   return { ok, http: r.status, data };
 }
 
-// Cria o subscriber; se já existir, acha pelo telefone. Devolve o id ou lança.
+// Acha o subscriber pelo campo `whatsapp`; se não existir, cria e carimba o
+// campo. Devolve o id ou lança.
 async function subscriberId(wa: string, nome: string): Promise<string> {
+  const buscar = async () => {
+    const r = await mc("GET", "/fb/subscriber/findByCustomField", {
+      field_id: F_WHATSAPP, field_value: wa,
+    });
+    const lista = (r.data?.data as Array<Record<string, unknown>> | undefined) ?? [];
+    return { r, id: r.ok && lista.length > 0 && lista[0]?.id ? String(lista[0].id) : "" };
+  };
+
+  const achado = await buscar();
+  if (achado.id) return achado.id;
+
   const partes = (nome ?? "").trim().split(/\s+/);
   const criado = await mc("POST", "/fb/subscriber/createSubscriber", {
     whatsapp_phone: "+" + wa,
@@ -97,16 +112,20 @@ async function subscriberId(wa: string, nome: string): Promise<string> {
     consent_phrase: "Compradora Posicoes Secretas (Payt)",
   });
   const idCriado = (criado.data?.data as Record<string, unknown> | undefined)?.id;
-  if (criado.ok && idCriado) return String(idCriado);
+  if (criado.ok && idCriado) {
+    // Sem o carimbo o contato nasce invisível pra busca acima.
+    await mc("POST", "/fb/subscriber/setCustomField", {
+      subscriber_id: String(idCriado), field_id: F_WHATSAPP, field_value: wa,
+    });
+    return String(idCriado);
+  }
 
-  // Provável duplicado — busca pelo telefone.
-  const achado = await mc("GET", "/fb/subscriber/findBySystemField", { phone: "+" + wa });
-  const idAchado = (achado.data?.data as Record<string, unknown> | undefined)?.id;
-  if (achado.ok && idAchado) return String(idAchado);
+  const denovo = await buscar();
+  if (denovo.id) return denovo.id;
 
   throw new Error(
     `createSubscriber(${criado.http}): ${JSON.stringify(criado.data).slice(0, 300)} | ` +
-    `find(${achado.http}): ${JSON.stringify(achado.data).slice(0, 200)}`,
+    `findByCustomField(${achado.r.http}): ${JSON.stringify(achado.r.data).slice(0, 200)}`,
   );
 }
 
