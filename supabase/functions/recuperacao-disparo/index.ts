@@ -210,7 +210,13 @@ Deno.serve(async (req) => {
       // espera crescente (10, 20, 30 min). `status='erro'` passa a significar
       // "desisti depois de MAX_TENTATIVAS", que é o que o painel deve mostrar.
       const tentativas = (l.tentativas ?? 0) + 1;
-      const desiste = tentativas >= MAX_TENTATIVAS;
+      // Número que o WhatsApp recusa não melhora tentando de novo: desiste na
+      // hora, pra 'erro' no painel querer dizer "número ruim" e não "esperando".
+      const msg = String(e);
+      const permanente = msg.includes("not a valid WhatsApp ID") ||
+                         msg.includes("telefone inválido") ||
+                         msg.includes("sem flow_ns");
+      const desiste = permanente || tentativas >= MAX_TENTATIVAS;
       Object.assign(upd, {
         status: desiste ? "erro" : "agendado",
         erro: String(e).slice(0, 500),
