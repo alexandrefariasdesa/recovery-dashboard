@@ -68,6 +68,17 @@ FONTES = [
         "limite_h": 48,
     },
     {
+        "chave": "aula_eventos",
+        "titulo": "Eventos do webinário",
+        "tabela": "aula_eventos",
+        "coluna": "evento_em",
+        "quem": "webhooks da Applive → edge function `webinar-webhook`",
+        # A aula não é diária: entre uma sessão e outra o silêncio é normal, e
+        # gritar todo dia por isso ensinaria a ignorar o Pulso. 8 dias cobre uma
+        # semana inteira sem aula sem virar alerta.
+        "limite_h": 192,
+    },
+    {
         "chave": "recuperacao_disparos",
         "titulo": "Fila do motor de recuperação",
         "tabela": "recuperacao_disparos",

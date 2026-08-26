@@ -181,6 +181,13 @@ def _convite_aula():
     )()
 
 
+def _aula_eventos():
+    from processors.aula_eventos import build_aula_eventos
+    from components.aula_eventos_tab import render_aula_eventos_tab
+    return _pagina(build_aula_eventos, render_aula_eventos_tab,
+                   "Lendo os eventos do webinário...")()
+
+
 def _segunda_chamada():
     from processors.group_followup import build_group_followup_dataframe
     from components.group_followup_tab import render_group_followup_tab
@@ -229,6 +236,9 @@ st.navigation({
         st.Page(_grupo_funil, title="Grupo", url_path="grupo"),
         st.Page(_upsell, title="Upsell", url_path="upsell"),
         st.Page(_convite_aula, title="Aula", url_path="aula"),
+        # A página acima é o que MANDAMOS; esta é o que aconteceu na sala.
+        # Separadas porque uma depende do nosso motor e a outra da plataforma.
+        st.Page(_aula_eventos, title="Webinário", url_path="webinario"),
     ],
     # "Está quebrado?" é outra pergunta que "quanto rendeu?" — por isso as peças
     # de diagnóstico ficam separadas dos funis, e não misturadas neles.

@@ -213,6 +213,22 @@ Deno.serve(async (req) => {
     if (!cfg.ativo) { console.log(`aula-convite etapa=${etapa}: desligada, nada a fazer`); return json({ ok: true, fase, etapa, desligada: true }); }
     if (!cfg.flow_ns) return json({ error: `etapa ${etapa} sem flow_ns no banco — nada disparado` }, 400);
 
+    // Supressão antes da fila: quem já está na sala não leva um "vem, tô te
+    // esperando". Mesma posição no ciclo que a supressão da recuperação ocupa
+    // (cancelar antes de drenar). Só age nas etapas marcadas com
+    // `pular_se_entrou` — ver 0016.
+    const { data: suprimidas, error: sErr } = await admin.rpc(
+      "suprimir_convites_ja_entraram", { p_etapa: etapa },
+    );
+    if (sErr) {
+      // Não derruba o disparo: falhar a supressão manda mensagem a mais, falhar
+      // o disparo não manda nenhuma. O NOT EXISTS dentro de fila_convites_etapa
+      // ainda segura o caso, então o pior aqui é perder a contagem no log.
+      console.error(`etapa ${etapa}: supressão falhou:`, sErr.message);
+    } else if (suprimidas) {
+      console.log(`aula-convite etapa=${etapa}: ${suprimidas} suprimidas (já entraram)`);
+    }
+
     const { data: fila, error: fErr } = await admin.rpc("fila_convites_etapa", {
       p_etapa: etapa, p_limite: MAX_POR_CHAMADA, p_max_tentativas: MAX_TENTATIVAS,
     });
