@@ -22,3 +22,6 @@ ruvector.db
 
 supabase/.temp/
 .env.railway
+
+# Estado do plugin ruflo (nao e codigo do projeto)
+.claude-flow/
