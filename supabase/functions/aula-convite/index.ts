@@ -51,6 +51,13 @@ const F_WHATSAPP = 13936072;
 const LINK_BASE = "https://luizavitoria.applive.com.br/mulher-inesquecivel-v2/lp";
 const MAX_POR_CHAMADA = 80;   // por invocação; o cron invoca em sequência até drenar
 const MAX_TENTATIVAS = 4;     // depois disso a linha fica em 'erro' e para de tentar
+// A função é morta pelo relógio da plataforma, e ser morta no meio de uma
+// pessoa (depois do sendFlow, antes do UPDATE) reenvia a mensagem dela na
+// chamada seguinte. Então paramos ANTES, de forma limpa: o cron chama de novo
+// em 5 min e a fila continua de onde parou. Com ~1s por chamada de API e 3-4
+// chamadas por pessoa, 120s cobrem ~30 pessoas por invocação — 4 invocações
+// por etapa dão folga sobre o teto de 100/dia.
+const DEADLINE_MS = 120_000;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -97,20 +104,42 @@ async function subscriberId(wa: string, nome: string): Promise<string> {
       field_id: F_WHATSAPP, field_value: wa,
     });
     const lista = (r.data?.data as Array<Record<string, unknown>> | undefined) ?? [];
-    return { r, id: r.ok && lista.length > 0 && lista[0]?.id ? String(lista[0].id) : "" };
+    const primeiro = lista.length > 0 ? lista[0] : null;
+    return {
+      r,
+      id: r.ok && primeiro?.id ? String(primeiro.id) : "",
+      // A busca já devolve o opt-in do canal — não custa uma chamada a mais.
+      optin: primeiro ? primeiro.optin_whatsapp === true : false,
+    };
   };
 
-  const achado = await buscar();
-  if (achado.id) return achado.id;
-
   const partes = (nome ?? "").trim().split(/\s+/);
-  const criado = await mc("POST", "/fb/subscriber/createSubscriber", {
+  const upsert = () => mc("POST", "/fb/subscriber/createSubscriber", {
     whatsapp_phone: "+" + wa,
     first_name: partes[0] ?? "",
     last_name: partes.slice(1).join(" "),
     has_opt_in: true,
     consent_phrase: "Compradora Posicoes Secretas (Payt)",
   });
+
+  const achado = await buscar();
+  if (achado.id) {
+    // ⚠️ O CONTATO EXISTIR NÃO BASTA. Contato com `optin_whatsapp: false` faz o
+    // sendFlow responder 200 e a mensagem NUNCA sair — o fluxo roda, os campos
+    // são gravados, o ManyChat conta como "enviada" e o WhatsApp não entrega
+    // nada. Falha silenciosa: sem erro na API, sem erro no banco, sem mensagem.
+    // Medido em 30/08: 30 de 30 compradoras da leva de amanhã estavam assim.
+    // createSubscriber no telefone que já existe é UPSERT e liga o opt-in
+    // (verificado no contato do usuário: false -> true, mesmo id 2133358702).
+    if (achado.optin) return achado.id;
+    const ligado = await upsert();
+    if (!ligado.ok) {
+      throw new Error(`optin_whatsapp(${ligado.http}): ${JSON.stringify(ligado.data).slice(0, 250)}`);
+    }
+    return achado.id;
+  }
+
+  const criado = await upsert();
   const idCriado = (criado.data?.data as Record<string, unknown> | undefined)?.id;
   if (criado.ok && idCriado) {
     // Sem o carimbo o contato nasce invisível pra busca acima.
@@ -154,15 +183,31 @@ async function etapaConfig(
 // Escreve a copy da etapa nos campos que os templates aprovados usam como corpo
 // ({{cuf_13923586}} / {{cuf_13923587}}). É o que faz a mensagem chegar como
 // TEMPLATE — ou seja, mesmo com a janela de 24h do WhatsApp fechada.
-async function gravarCopy(cfg: EtapaCfg, sid: string, link: string | null) {
+// `setCustomFields` (plural) grava os campos de uma vez. Vale a troca: cada
+// chamada à API do ManyChat custa ~1s, e é o relógio que limita quantas pessoas
+// cabem numa invocação. Com `linkFieldId` o link_sala entra no mesmo pacote.
+async function gravarCopy(
+  cfg: EtapaCfg, sid: string, link: string | null, linkFieldId?: number | null,
+) {
   const troca = (t: string | null) => (t ?? "").replaceAll("{link}", link ?? "");
-  for (const [fieldId, texto] of [[F_P1, cfg.texto_p1], [F_P2, cfg.texto_p2]] as const) {
-    if (texto == null) continue;
-    const r = await mc("POST", "/fb/subscriber/setCustomField", {
-      subscriber_id: sid, field_id: fieldId, field_value: troca(texto),
-    });
-    if (!r.ok) throw new Error(`setCustomField(p${fieldId === F_P1 ? 1 : 2}, ${r.http}): ${JSON.stringify(r.data).slice(0, 200)}`);
-  }
+  const fields: Array<{ field_id: number; field_value: string }> = [];
+  if (cfg.texto_p1 != null) fields.push({ field_id: F_P1, field_value: troca(cfg.texto_p1) });
+  if (cfg.texto_p2 != null) fields.push({ field_id: F_P2, field_value: troca(cfg.texto_p2) });
+  if (linkFieldId && link) fields.push({ field_id: linkFieldId, field_value: link });
+  if (!fields.length) return;
+  const r = await mc("POST", "/fb/subscriber/setCustomFields", { subscriber_id: sid, fields });
+  if (!r.ok) throw new Error(`setCustomFields(${r.http}): ${JSON.stringify(r.data).slice(0, 250)}`);
+}
+
+// Id do campo do link, resolvido UMA vez por invocação (não por pessoa). Sem
+// ele o link vai numa chamada separada, por nome — funciona igual, só custa
+// mais um round-trip por pessoa.
+async function linkFieldId(): Promise<number | null> {
+  const r = await mc("GET", "/fb/page/getCustomFields");
+  if (!r.ok) return null;
+  const campos = (r.data?.data as Array<Record<string, unknown>> | undefined) ?? [];
+  const achado = campos.find((c) => c.name === MC_LINK_FIELD);
+  return achado?.id ? Number(achado.id) : null;
 }
 
 // 1 linha por (convidada, etapa, dia). 'enviada' nunca repete; 'erro' volta na
@@ -235,9 +280,11 @@ Deno.serve(async (req) => {
     if (fErr) { console.error(`etapa ${etapa}:`, fErr.message); return json({ error: fErr.message }, 500); }
 
     const dia = hojeBrasilia();
-    let enviadas = 0, falhas = 0;
+    let enviadas = 0, falhas = 0, paradas = 0;
+    const t0 = Date.now();
 
     for (const linha of (fila ?? []) as Array<{ convite_id: number; mc_subscriber_id: string; link_sala: string | null; tentativas: number }>) {
+      if (Date.now() - t0 > DEADLINE_MS) { paradas++; continue; }
       const tentativas = (linha.tentativas ?? 0) + 1;
       try {
         await gravarCopy(cfg, linha.mc_subscriber_id, linha.link_sala);
@@ -257,8 +304,9 @@ Deno.serve(async (req) => {
 
     const filaCheia = ((fila ?? []) as unknown[]).length === MAX_POR_CHAMADA;
     console.log(`aula-convite etapa=${etapa}: ${enviadas} enviadas, ${falhas} falhas` +
+      (paradas ? `, ${paradas} adiadas pelo relógio` : "") +
       (filaCheia ? " (fila pode ter mais — próxima chamada do cron drena)" : ""));
-    return json({ ok: true, fase, etapa, enviadas, falhas, fila_cheia: filaCheia });
+    return json({ ok: true, fase, etapa, enviadas, falhas, adiadas: paradas, fila_cheia: filaCheia });
   }
 
   if (fase !== "disparar") return json({ error: "fase inválida (selecionar|disparar|etapa)" }, 400);
@@ -286,9 +334,12 @@ Deno.serve(async (req) => {
   if (qErr) return json({ error: qErr.message }, 500);
 
   const aulaData = hojeBrasilia();
-  let enviadas = 0, falhas = 0;
+  let enviadas = 0, falhas = 0, paradas = 0;
+  const t0 = Date.now();
+  const fLink = await linkFieldId();   // uma vez por invocação, não por pessoa
 
   for (const c of fila ?? []) {
+    if (Date.now() - t0 > DEADLINE_MS) { paradas++; continue; }
     const wa = waPhone(c.telefone);
     const upd: Record<string, unknown> = { tentativas: (c.tentativas ?? 0) + 1 };
     try {
@@ -300,12 +351,23 @@ Deno.serve(async (req) => {
 
       const sid = await subscriberId(wa, c.nome ?? "");
 
-      const campo = await mc("POST", "/fb/subscriber/setCustomFieldByName", {
-        subscriber_id: sid, field_name: MC_LINK_FIELD, field_value: link,
-      });
-      if (!campo.ok) throw new Error(`setCustomField(${campo.http}): ${JSON.stringify(campo.data).slice(0, 300)}`);
-
-      if (cfgHoje) await gravarCopy(cfgHoje, sid, link);
+      if (fLink) {
+        // link entra junto com a copy, numa chamada só
+        if (cfgHoje) {
+          await gravarCopy(cfgHoje, sid, link, fLink);
+        } else {
+          const campo = await mc("POST", "/fb/subscriber/setCustomFields", {
+            subscriber_id: sid, fields: [{ field_id: fLink, field_value: link }],
+          });
+          if (!campo.ok) throw new Error(`setCustomFields(${campo.http}): ${JSON.stringify(campo.data).slice(0, 300)}`);
+        }
+      } else {
+        const campo = await mc("POST", "/fb/subscriber/setCustomFieldByName", {
+          subscriber_id: sid, field_name: MC_LINK_FIELD, field_value: link,
+        });
+        if (!campo.ok) throw new Error(`setCustomField(${campo.http}): ${JSON.stringify(campo.data).slice(0, 300)}`);
+        if (cfgHoje) await gravarCopy(cfgHoje, sid, link);
+      }
 
       const envio = await mc("POST", "/fb/sending/sendFlow", {
         subscriber_id: sid, flow_ns: flowHoje,
@@ -329,6 +391,7 @@ Deno.serve(async (req) => {
 
   const restantes = (fila?.length ?? 0) === MAX_POR_CHAMADA;
   console.log(`aula-convite disparar: ${enviadas} enviadas, ${falhas} falhas` +
+    (paradas ? `, ${paradas} adiadas pelo relógio` : "") +
     (restantes ? " (fila pode ter mais — próxima chamada do cron drena)" : ""));
-  return json({ ok: true, fase, enviadas, falhas, fila_cheia: restantes });
+  return json({ ok: true, fase, enviadas, falhas, adiadas: paradas, fila_cheia: restantes });
 });

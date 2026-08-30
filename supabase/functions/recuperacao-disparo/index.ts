@@ -6,7 +6,9 @@
 //   ?fase=agendar   -> rpc agendar_recuperacoes(): varre `recovery_events` e cria
 //                      a escada de disparos de quem ainda não tem (respeitando
 //                      modo <> 'off' e a trava `desde`).
-//   ?fase=disparar  -> cancela quem já comprou, pega o que venceu e manda:
+//   ?fase=disparar  -> cancela quem já comprou e quem bloqueou (tabela `optout`,
+//                      alimentada pelo bloco BLOQUEAR do ManyChat), pega o que
+//                      venceu e manda:
 //                      cria/acha subscriber no ManyChat, grava p1/p2 e sendFlow.
 //
 // MODO (por tipo, em `recuperacao_config`) — é o que permite rodar em paralelo
@@ -78,18 +80,37 @@ async function subscriberId(wa: string, nome: string): Promise<string> {
     field_id: F_WHATSAPP, field_value: wa,
   });
   const lista = (achado.data?.data as Array<Record<string, unknown>> | undefined) ?? [];
-  if (achado.ok && lista.length > 0 && lista[0]?.id) return String(lista[0].id);
+  const primeiro = achado.ok && lista.length > 0 ? lista[0] : null;
 
-  // 2) não existe: cria e CARIMBA o campo, senão o contato nasce invisível pro
-  //    passo 1 e a próxima mensagem pra essa pessoa volta a falhar.
   const partes = (nome ?? "").trim().split(/\s+/);
-  const criado = await mc("POST", "/fb/subscriber/createSubscriber", {
+  // createSubscriber com telefone que JÁ EXISTE é upsert: devolve o mesmo id e
+  // liga o opt-in do canal. Serve pra criar e pra consertar.
+  const upsert = () => mc("POST", "/fb/subscriber/createSubscriber", {
     whatsapp_phone: "+" + wa,
     first_name: partes[0] ?? "",
     last_name: partes.slice(1).join(" "),
     has_opt_in: true,
     consent_phrase: "Recuperacao de compra (Payt)",
   });
+
+  if (primeiro?.id) {
+    // ⚠️ ACHAR O CONTATO NÃO BASTA. Com `optin_whatsapp: false` o sendFlow
+    // responde 200, o fluxo roda, os campos são gravados, o ManyChat conta como
+    // enviada — e o WhatsApp não entrega nada. Falha silenciosa, sem erro em
+    // lugar nenhum (diagnosticada no aula-convite em 30/08). Aqui a maioria dos
+    // contatos nasce do próprio motor, com opt-in; o risco é o contato antigo,
+    // criado por fora. A busca já devolve o opt-in, então não custa chamada.
+    if (primeiro.optin_whatsapp === true) return String(primeiro.id);
+    const ligado = await upsert();
+    if (!ligado.ok) {
+      throw new Error(`optin_whatsapp(${ligado.http}): ${JSON.stringify(ligado.data).slice(0, 250)}`);
+    }
+    return String(primeiro.id);
+  }
+
+  // 2) não existe: cria e CARIMBA o campo, senão o contato nasce invisível pro
+  //    passo 1 e a próxima mensagem pra essa pessoa volta a falhar.
+  const criado = await upsert();
   const idCriado = (criado.data?.data as Record<string, unknown> | undefined)?.id;
   if (criado.ok && idCriado) {
     await mc("POST", "/fb/subscriber/setCustomField", {
@@ -151,6 +172,12 @@ Deno.serve(async (req) => {
   // Search Rows/comprador-check fazia no Make).
   const { data: cancelados, error: cErr } = await admin.rpc("cancelar_recuperacoes_compradas");
   if (cErr) console.error("cancelar_recuperacoes_compradas:", cErr.message);
+
+  // Quem tocou BLOQUEAR no ManyChat (tabela `optout`, 0018) sai da fila do
+  // mesmo jeito: a linha fica 'cancelado' com motivo, visível no painel.
+  // A `fila_recuperacao` também filtra — isto aqui é o que dá o registro.
+  const { data: bloqueados, error: bErr } = await admin.rpc("cancelar_recuperacoes_bloqueadas");
+  if (bErr) console.error("cancelar_recuperacoes_bloqueadas:", bErr.message);
 
   const { data: fila, error: fErr } = await admin.rpc("fila_recuperacao", {
     p_limite: MAX_POR_CHAMADA, p_max_tentativas: MAX_TENTATIVAS,
@@ -242,10 +269,13 @@ Deno.serve(async (req) => {
   const filaCheia = ((fila ?? []) as unknown[]).length === MAX_POR_CHAMADA;
   console.log(
     `recuperacao disparar: ${enviados} enviados, ${simulados} simulados, ${falhas} falhas, ` +
-    `${cancelados ?? 0} cancelados por compra` + (filaCheia ? " (fila cheia)" : ""),
+    `${cancelados ?? 0} cancelados por compra, ${bloqueados ?? 0} por bloqueio` +
+    (filaCheia ? " (fila cheia)" : ""),
   );
   return json({
     ok: true, fase, enviados, simulados, falhas,
-    cancelados_por_compra: cancelados ?? 0, fila_cheia: filaCheia,
+    cancelados_por_compra: cancelados ?? 0,
+    cancelados_por_bloqueio: bloqueados ?? 0,
+    fila_cheia: filaCheia,
   });
 });
