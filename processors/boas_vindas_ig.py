@@ -169,24 +169,36 @@ def build_boas_vindas_ig(start_date, end_date) -> dict:
     # ── Compra por UTM: a atribuição que não depende de identidade ─────────
     # Gravado a partir da migration 0020 + deploy do payt-webhook. Antes disso a
     # coluna é nula para todo mundo, e a página diz isso em vez de mostrar zero.
+    # Agrupa pelo conjunto de parâmetros como veio — não por campos fixos. A Payt
+    # usa `src`/`sck`/`xcod` (a mesma família do Hotmart), então travar a leitura
+    # em utm_source/utm_campaign deixaria a tabela inteira em "(sem source)".
     utms = _read("""
-        select coalesce(utm ->> 'utm_source', '(sem source)')     as utm_source,
-               coalesce(utm ->> 'utm_campaign', '(sem campaign)') as utm_campaign,
-               coalesce(utm ->> 'utm_content', '(sem content)')   as utm_content,
-               bool_or(utm::text ilike '%{etiqueta}%')            as do_fluxo,
-               count(*)                                          as compras,
-               coalesce(sum(valor), 0)                           as receita
+        select utm::text                             as utm_json,
+               utm::text ilike '%{etiqueta}%'        as do_fluxo,
+               count(*)                              as compras,
+               coalesce(sum(valor), 0)               as receita
         from public.compras
         where utm is not null
           and (compra_em at time zone 'America/Sao_Paulo')::date
               between '{ini}' and '{fim}'
-        group by 1, 2, 3
+        group by 1, 2
         order by compras desc
     """.format(etiqueta=UTM_FLUXO, **per))
     if not utms.empty:
+        import json as _json
+
+        def _rotulo(txt: str) -> str:
+            """`{"src": "v4-manychat-dm"}` vira `src=v4-manychat-dm`."""
+            try:
+                d = _json.loads(txt) or {}
+            except Exception:
+                return txt[:80]
+            return " · ".join(f"{k}={v}" for k, v in sorted(d.items())) or "(vazio)"
+
         utms["compras"] = utms["compras"].astype(int)
         utms["receita"] = utms["receita"].astype(float)
         utms["do_fluxo"] = utms["do_fluxo"].astype(bool)
+        utms["Origem"] = utms["utm_json"].map(_rotulo)
 
     com_utm = _read("""
         select count(*) as n

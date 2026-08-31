@@ -54,9 +54,12 @@ const onlyDigits = (s: string | null) => (s ?? "").replace(/\D/g, "");
 // O que sobra é a origem do clique, e a Payt carrega isso no payload. Não temos
 // a forma exata documentada, então varremos os lugares plausíveis e guardamos
 // TUDO que parecer UTM — inclusive chaves que ainda não conhecemos.
+// `src`, `sck` e `xcod` são os parâmetros de rastreio da Payt (mesma família do
+// Hotmart) — o fluxo manda a mesma etiqueta nos três. `utm_*` entram junto
+// porque o link pode carregar os dois formatos.
 const UTM_KEYS = new Set([
-  "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
-  "src", "sck", "source", "origem",
+  "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "utm_id",
+  "src", "sck", "xcod", "source", "origem",
 ]);
 
 function colherUtm(body: Record<string, unknown>): Record<string, string> | null {

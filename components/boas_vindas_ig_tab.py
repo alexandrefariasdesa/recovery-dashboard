@@ -122,11 +122,7 @@ def render_boas_vindas_ig(data: dict) -> None:
             "anteriores só entram por backfill a partir da Payt."
         )
     else:
-        rotulos = [
-            f"{r.utm_source} · {r.utm_campaign} · {r.utm_content}"
-            for r in utms.itertuples()
-        ]
-        utms = utms.assign(Origem=rotulos)
+        rotulos = utms["Origem"].tolist()
         # Já vem marcado o que carrega a etiqueta do fluxo; o multiselect existe
         # para o dia em que um link novo usar outra etiqueta e você quiser somar.
         padrao = [rot for rot, do_fluxo
