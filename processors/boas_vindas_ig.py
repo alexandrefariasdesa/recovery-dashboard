@@ -172,16 +172,28 @@ def build_boas_vindas_ig(start_date, end_date) -> dict:
     # Agrupa pelo conjunto de parâmetros como veio — não por campos fixos. A Payt
     # usa `src`/`sck`/`xcod` (a mesma família do Hotmart), então travar a leitura
     # em utm_source/utm_campaign deixaria a tabela inteira em "(sem source)".
+    # Agrupa por um subconjunto ESTÁVEL dos parâmetros. A Payt manda junto o
+    # `sck`/`clickid`, que em campanha paga é um token único por clique — incluí-
+    # los no agrupamento faria cada compra virar uma linha própria e a tabela
+    # perderia a função. O `do_fluxo`, porém, olha o conjunto INTEIRO: se a
+    # etiqueta do fluxo vier justamente no sck, a venda continua sendo contada.
     utms = _read("""
-        select utm::text                             as utm_json,
-               utm::text ilike '%{etiqueta}%'        as do_fluxo,
-               count(*)                              as compras,
-               coalesce(sum(valor), 0)               as receita
+        select jsonb_strip_nulls(jsonb_build_object(
+                 'src',          utm ->> 'src',
+                 'utm_source',   utm ->> 'utm_source',
+                 'utm_medium',   utm ->> 'utm_medium',
+                 'utm_campaign', utm ->> 'utm_campaign',
+                 'utm_content',  utm ->> 'utm_content',
+                 'utm_term',     utm ->> 'utm_term'
+               ))::text                          as utm_json,
+               bool_or(utm::text ilike '%{etiqueta}%') as do_fluxo,
+               count(*)                          as compras,
+               coalesce(sum(valor), 0)           as receita
         from public.compras
         where utm is not null
           and (compra_em at time zone 'America/Sao_Paulo')::date
               between '{ini}' and '{fim}'
-        group by 1, 2
+        group by 1
         order by compras desc
     """.format(etiqueta=UTM_FLUXO, **per))
     if not utms.empty:
@@ -193,7 +205,7 @@ def build_boas_vindas_ig(start_date, end_date) -> dict:
                 d = _json.loads(txt) or {}
             except Exception:
                 return txt[:80]
-            return " · ".join(f"{k}={v}" for k, v in sorted(d.items())) or "(vazio)"
+            return " · ".join(f"{k}={v}" for k, v in sorted(d.items())) or "(sem origem)"
 
         utms["compras"] = utms["compras"].astype(int)
         utms["receita"] = utms["receita"].astype(float)

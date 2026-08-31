@@ -57,40 +57,48 @@ const onlyDigits = (s: string | null) => (s ?? "").replace(/\D/g, "");
 // `src`, `sck` e `xcod` são os parâmetros de rastreio da Payt (mesma família do
 // Hotmart) — o fluxo manda a mesma etiqueta nos três. `utm_*` entram junto
 // porque o link pode carregar os dois formatos.
+//
+// E eles vêm ANINHADOS, não no topo do payload. Confirmado numa compra aprovada
+// real em 31/08/2026:
+//   link.sources      → src, utm_source, utm_medium, utm_campaign, utm_content,
+//                       utm_term (o que estava na URL do checkout)
+//   link.query_params → sck, clickid (o que a plataforma anexou)
+// Procurar só no topo devolvia sempre vazio.
 const UTM_KEYS = new Set([
   "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "utm_id",
-  "src", "sck", "xcod", "source", "origem",
+  "src", "sck", "xcod", "source", "origem", "clickid",
 ]);
+
+// Onde procurar, em ordem. A primeira ocorrência de uma chave vence — o topo é
+// mais confiável que o aninhado quando as duas existem.
+const UTM_PATHS = [
+  "", "link.sources", "link.query_params", "link",
+  "transaction", "tracking", "utms", "utm", "data", "checkout", "order",
+];
+
+function noCaminho(body: Record<string, unknown>, caminho: string): unknown {
+  if (!caminho) return body;
+  return caminho.split(".").reduce<unknown>(
+    (o, k) => (o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined),
+    body,
+  );
+}
 
 function colherUtm(body: Record<string, unknown>): Record<string, string> | null {
   const out: Record<string, string> = {};
 
-  const absorve = (obj: unknown, prefixo = "") => {
-    if (!obj || typeof obj !== "object") return;
+  const absorve = (obj: unknown) => {
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return;
     for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
       const chave = k.toLowerCase();
-      if (typeof v === "string" || typeof v === "number") {
-        const valor = String(v).trim();
-        if (!valor) continue;
-        if (UTM_KEYS.has(chave) || chave.startsWith("utm")) {
-          // A primeira ocorrência vence: o nível mais raso do payload é o mais
-          // confiável quando a mesma chave aparece em dois lugares.
-          out[prefixo + chave] ??= valor;
-        }
-      }
+      if (typeof v !== "string" && typeof v !== "number") continue;
+      const valor = String(v).trim();
+      if (!valor) continue;
+      if (UTM_KEYS.has(chave) || chave.startsWith("utm")) out[chave] ??= valor;
     }
   };
 
-  absorve(body);
-  for (const caminho of ["transaction", "tracking", "utms", "utm", "data", "checkout", "order"]) {
-    const filho = (body as Record<string, unknown>)[caminho];
-    absorve(filho);
-    if (filho && typeof filho === "object") {
-      for (const neto of ["tracking", "utms", "utm"]) {
-        absorve((filho as Record<string, unknown>)[neto]);
-      }
-    }
-  }
+  for (const caminho of UTM_PATHS) absorve(noCaminho(body, caminho));
 
   return Object.keys(out).length ? out : null;
 }
