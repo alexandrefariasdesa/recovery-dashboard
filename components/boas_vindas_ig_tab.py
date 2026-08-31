@@ -102,7 +102,10 @@ def render_boas_vindas_ig(data: dict) -> None:
         "O fluxo é do Instagram e não pede contato, então não dá para casar a "
         "pessoa com a compra. A chave é a **origem**: a Payt manda o UTM do link "
         "no webhook e ele fica em `compras.utm`. Uma venda com o UTM deste fluxo "
-        "é uma venda deste fluxo, sem precisar saber quem é."
+        "é uma venda deste fluxo, sem precisar saber quem é. A etiqueta deste "
+        f"fluxo é `{data.get('utm_etiqueta', '—')}` — procurada em qualquer "
+        "campo de UTM, porque a mesma etiqueta chega como campaign num link e "
+        "como content noutro."
     )
 
     utms = data.get("utms")
@@ -114,8 +117,9 @@ def render_boas_vindas_ig(data: dict) -> None:
             f"**Nenhuma das {_br(no_periodo)} compras do período tem UTM "
             "gravado ainda.** A captura começa a valer no deploy do webhook "
             "`payt-webhook` (migration 0020 já aplicada) — daí em diante toda "
-            "compra aprovada chega com a origem, e este bloco passa a responder "
-            "sozinho. Vendas anteriores só entram por backfill a partir da Payt."
+            "compra aprovada chega com a origem, e as que trouxerem "
+            f"`{data.get('utm_etiqueta', '—')}` aparecem aqui sozinhas. Vendas "
+            "anteriores só entram por backfill a partir da Payt."
         )
     else:
         rotulos = [
@@ -123,12 +127,10 @@ def render_boas_vindas_ig(data: dict) -> None:
             for r in utms.itertuples()
         ]
         utms = utms.assign(Origem=rotulos)
-        # Palpite inicial: o que parece boas-vindas/ManyChat já vem marcado, mas
-        # quem decide é você — o slug do link é escolhido no ManyChat, não aqui.
-        padrao = [
-            rot for rot in rotulos
-            if any(t in rot.lower() for t in ("boas", "bv", "welcome", "manychat", "seguidor"))
-        ]
+        # Já vem marcado o que carrega a etiqueta do fluxo; o multiselect existe
+        # para o dia em que um link novo usar outra etiqueta e você quiser somar.
+        padrao = [rot for rot, do_fluxo
+                  in zip(rotulos, utms["do_fluxo"].tolist()) if do_fluxo]
         escolhidas = st.multiselect(
             "Quais origens são deste fluxo?", rotulos, default=padrao,
             key="bv_ig_utms",

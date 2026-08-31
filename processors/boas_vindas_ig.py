@@ -39,6 +39,12 @@ from clients.postgres import _read
 # Slug do fluxo do Instagram dentro de `manychat_eventos`.
 FLUXO = "boas_vindas"
 
+# A etiqueta de origem que o link deste fluxo carrega até o checkout da Payt.
+# Casamos contra o conteúdo INTEIRO do `utm` (jsonb como texto) em vez de fixar
+# um campo: a mesma etiqueta pode chegar como utm_campaign num link e utm_content
+# noutro, e o que importa é ela estar lá.
+UTM_FLUXO = "v4-manychat-dm"
+
 ETAPAS = ["recebeu", "entrou", "engajou"]
 ETAPA_LABEL = {"recebeu": "Recebeu", "entrou": "Entrou", "engajou": "Engajou"}
 
@@ -167,6 +173,7 @@ def build_boas_vindas_ig(start_date, end_date) -> dict:
         select coalesce(utm ->> 'utm_source', '(sem source)')     as utm_source,
                coalesce(utm ->> 'utm_campaign', '(sem campaign)') as utm_campaign,
                coalesce(utm ->> 'utm_content', '(sem content)')   as utm_content,
+               bool_or(utm::text ilike '%{etiqueta}%')            as do_fluxo,
                count(*)                                          as compras,
                coalesce(sum(valor), 0)                           as receita
         from public.compras
@@ -175,10 +182,11 @@ def build_boas_vindas_ig(start_date, end_date) -> dict:
               between '{ini}' and '{fim}'
         group by 1, 2, 3
         order by compras desc
-    """.format(**per))
+    """.format(etiqueta=UTM_FLUXO, **per))
     if not utms.empty:
         utms["compras"] = utms["compras"].astype(int)
         utms["receita"] = utms["receita"].astype(float)
+        utms["do_fluxo"] = utms["do_fluxo"].astype(bool)
 
     com_utm = _read("""
         select count(*) as n
@@ -200,6 +208,7 @@ def build_boas_vindas_ig(start_date, end_date) -> dict:
     return {
         "funil": funil,
         "utms": utms,
+        "utm_etiqueta": UTM_FLUXO,
         "compras_com_utm": total_com_utm,
         "compras_periodo": total_compras,
         "recebeu": recebeu,
