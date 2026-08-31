@@ -1,0 +1,165 @@
+"""
+processors/boas_vindas_ig.py
+================================================================================
+Funil do fluxo de BOAS-VINDAS DO INSTAGRAM (automação "boas vindas posições 2",
+no ar desde 17/07/2026):
+
+    recebeu  →  entrou  →  engajou
+
+Fonte: `manychat_eventos` (slug `fluxo='boas_vindas'`), gravada pelos tijolos de
+External Request do próprio fluxo via Worker `recovery-flow-tracker`.
+
+Por que uma página só pra esse fluxo, se "Etapas do fluxo" já lista todos:
+lá o fluxo é uma linha numa tabela com os outros quatro. Aqui cabe o ritmo
+diário, a taxa etapa a etapa e — principalmente — a resposta sobre COMPRA.
+
+**Sobre a compra: o fluxo é do Instagram e não captura telefone.** Os eventos
+chegam com `subscriber_id` do Instagram e `telefone` vazio; `compras` identifica
+a pessoa por telefone/e-mail. Não existe hoje chave que ligue os dois lados — na
+varredura de 30/08/2026, de 93.606 pessoas do fluxo apenas 1 tinha telefone em
+qualquer evento, e a interseção com `manychat_cliques` (onde mora o clique que
+vira venda) era zero. A atribuição é calculada mesmo assim, pela ponte de
+telefone, para acender sozinha no dia em que o fluxo passar a capturar contato —
+e o número honesto de hoje (perto de zero atribuível) fica à vista em vez de
+virar um zero silencioso que parece "ninguém comprou".
+"""
+import pandas as pd
+import streamlit as st
+
+from clients.postgres import _read
+
+# Slug do fluxo do Instagram dentro de `manychat_eventos`.
+FLUXO = "boas_vindas"
+
+ETAPAS = ["recebeu", "entrou", "engajou"]
+ETAPA_LABEL = {"recebeu": "Recebeu", "entrou": "Entrou", "engajou": "Engajou"}
+
+# Os outros fluxos de boas-vindas que existem na base (WhatsApp), mostrados como
+# contexto no rodapé da página — não fazem parte do funil do Instagram.
+OUTROS_SLUGS = {
+    "boas_vindas_ps": "Boas-vindas PS (WhatsApp)",
+    "boas_vindas_pp": "Boas-vindas PP (WhatsApp)",
+}
+
+
+def _sp(s):
+    """timestamptz (UTC) → parede de relógio de São Paulo, sem fuso."""
+    return (pd.to_datetime(s, utc=True, errors="coerce")
+              .dt.tz_convert("America/Sao_Paulo").dt.tz_localize(None))
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def build_boas_vindas_ig(start_date, end_date) -> dict:
+    """Funil do fluxo de boas-vindas do Instagram no período.
+
+    Pessoas distintas por etapa: `subscriber_id` quando existe, senão o telefone
+    normalizado — mesma chave das outras páginas de funil, pra quem clica duas
+    vezes não contar duas.
+    """
+    per = {"ini": start_date, "fim": end_date, "fluxo": FLUXO}
+
+    # ── Funil: pessoas distintas por etapa ──────────────────────────────────
+    resumo_raw = _read("""
+        select etapa, count(distinct pkey) as pessoas
+        from (
+          select etapa,
+                 coalesce(nullif(subscriber_id, ''), nullif(telefone_norm, '')) as pkey
+          from public.manychat_eventos
+          where fluxo = '{fluxo}'
+            and etapa in ('recebeu', 'entrou', 'engajou')
+            and (evento_em at time zone 'America/Sao_Paulo')::date
+                between '{ini}' and '{fim}'
+        ) t
+        where pkey is not null
+        group by etapa
+    """.format(**per))
+
+    pessoas = {r["etapa"]: int(r["pessoas"]) for _, r in resumo_raw.iterrows()} \
+        if not resumo_raw.empty else {}
+    recebeu = pessoas.get("recebeu", 0)
+    entrou = pessoas.get("entrou", 0)
+    engajou = pessoas.get("engajou", 0)
+
+    funil = pd.DataFrame([
+        {"etapa": e, "Etapa": ETAPA_LABEL[e], "Pessoas": pessoas.get(e, 0)}
+        for e in ETAPAS
+    ])
+
+    # ── Ritmo diário ────────────────────────────────────────────────────────
+    diario = _read("""
+        select dia, etapa, count(distinct pkey) as pessoas
+        from (
+          select (evento_em at time zone 'America/Sao_Paulo')::date as dia,
+                 etapa,
+                 coalesce(nullif(subscriber_id, ''), nullif(telefone_norm, '')) as pkey
+          from public.manychat_eventos
+          where fluxo = '{fluxo}'
+            and etapa in ('recebeu', 'entrou', 'engajou')
+            and (evento_em at time zone 'America/Sao_Paulo')::date
+                between '{ini}' and '{fim}'
+        ) t
+        where pkey is not null
+        group by dia, etapa
+        order by dia
+    """.format(**per))
+    if not diario.empty:
+        diario["pessoas"] = diario["pessoas"].astype(int)
+        diario["Etapa"] = diario["etapa"].map(ETAPA_LABEL)
+
+    # ── Compra: a ponte de identidade (hoje quase vazia, ver docstring) ─────
+    # `identificaveis` é o teto do que dá pra atribuir: quem passou pelo fluxo E
+    # deixou telefone em algum evento. `compraram` é quem, além disso, aparece em
+    # `compras` com compra no período ou depois do primeiro contato.
+    ponte = _read("""
+        with ev as (
+          select distinct nullif(telefone_norm, '') as tel
+          from public.manychat_eventos
+          where fluxo = '{fluxo}'
+            and (evento_em at time zone 'America/Sao_Paulo')::date
+                between '{ini}' and '{fim}'
+        )
+        select
+          (select count(*) from ev where tel is not null) as identificaveis,
+          (select count(distinct c.telefone_norm)
+             from public.compras c
+             join ev on ev.tel = c.telefone_norm) as compraram,
+          (select coalesce(sum(c.valor), 0)
+             from public.compras c
+             join ev on ev.tel = c.telefone_norm) as receita
+    """.format(**per))
+    if ponte.empty:
+        identificaveis = compraram = 0
+        receita = 0.0
+    else:
+        linha = ponte.iloc[0]
+        identificaveis = int(linha["identificaveis"] or 0)
+        compraram = int(linha["compraram"] or 0)
+        receita = float(linha["receita"] or 0.0)
+
+    # ── Outros fluxos de boas-vindas, como contexto ────────────────────────
+    outros = _read("""
+        select fluxo, etapa,
+               count(distinct coalesce(nullif(subscriber_id, ''),
+                                       nullif(telefone_norm, ''))) as pessoas
+        from public.manychat_eventos
+        where fluxo in ({slugs})
+          and (evento_em at time zone 'America/Sao_Paulo')::date
+              between '{ini}' and '{fim}'
+        group by fluxo, etapa
+        order by fluxo, pessoas desc
+    """.format(slugs=", ".join(f"'{s}'" for s in OUTROS_SLUGS), **per))
+    if not outros.empty:
+        outros["pessoas"] = outros["pessoas"].astype(int)
+        outros["Fluxo"] = outros["fluxo"].map(OUTROS_SLUGS).fillna(outros["fluxo"])
+
+    return {
+        "funil": funil,
+        "recebeu": recebeu,
+        "entrou": entrou,
+        "engajou": engajou,
+        "diario": diario,
+        "identificaveis": identificaveis,
+        "compraram": compraram,
+        "receita": receita,
+        "outros": outros,
+    }

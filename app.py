@@ -105,6 +105,13 @@ def _boas_vindas():
     return _pagina(build_boas_vindas, render_boas_vindas, "Carregando boas-vindas...")()
 
 
+def _boas_vindas_ig():
+    from processors.boas_vindas_ig import build_boas_vindas_ig
+    from components.boas_vindas_ig_tab import render_boas_vindas_ig
+    return _pagina(build_boas_vindas_ig, render_boas_vindas_ig,
+                   "Carregando boas-vindas do Instagram...")()
+
+
 def _grupo_funil():
     from processors.funis import build_grupo
     from components.funis_tab import render_grupo
@@ -233,6 +240,8 @@ st.navigation({
         st.Page(_aquisicao, title="Aquisição", url_path="aquisicao"),
         st.Page(_recuperacoes, title="Recuperação", url_path="recuperacao"),
         st.Page(_boas_vindas, title="Boas-vindas", url_path="boas-vindas"),
+        st.Page(_boas_vindas_ig, title="Boas-vindas Instagram",
+                url_path="boas-vindas-instagram"),
         st.Page(_grupo_funil, title="Grupo", url_path="grupo"),
         st.Page(_upsell, title="Upsell", url_path="upsell"),
         st.Page(_convite_aula, title="Aula", url_path="aula"),
