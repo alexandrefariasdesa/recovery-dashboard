@@ -43,6 +43,15 @@ def render_aula_tab(data: dict) -> None:
         help="Quantas das que receberam a 1ª mensagem chegaram na última.",
     )
 
+    sem_rastreio = resumo.get("sem_rastreio") or []
+    if sem_rastreio:
+        st.error(
+            "**O banco diz que mandou e o ManyChat não confirmou** nas etapas: "
+            + ", ".join(f"`{e}`" for e in sem_rastreio)
+            + ". Ou o tijolo de Solicitação Externa saiu do fluxo, ou o fluxo não "
+            "rodou — e nesse segundo caso a mensagem não chegou em ninguém."
+        )
+
     erros_convite = resumo.get("convites_erro", 0)
     if erros_convite:
         st.warning(f"{_br(erros_convite)} convite(s) em erro na fase das 09h — veja a tabela no fim da aba.")
@@ -80,6 +89,30 @@ def render_aula_tab(data: dict) -> None:
         ],
     )[["Etapa", "Hora", "Template", "Status", "Enviadas", "Erros", "Cobertura"]]
     st.dataframe(tabela, use_container_width=True, hide_index=True)
+
+    # ── Dupla checagem: banco × ManyChat ─────────────────────────────────────
+    st.subheader("Dupla checagem")
+    st.caption(
+        "**Enviadas** é o nosso banco: o ManyChat aceitou o `sendFlow`. "
+        "**Confirmadas** é o próprio ManyChat avisando, de dentro do fluxo, que "
+        "ele rodou pra aquela pessoa — testemunha independente do disparo. As "
+        "duas colunas existem porque 'enviada' já mentiu: em 30/08 o disparo "
+        "respondeu 200 com o contato sem opt-in no canal, e o WhatsApp não "
+        "entregou nada. Coluna da direita muito abaixo da esquerda é alarme."
+    )
+
+    checagem = pd.DataFrame([{
+        "Etapa": r["etapa"],
+        "Hora": r["hora"],
+        "Enviadas (banco)": _br(r["enviadas"]),
+        "Confirmadas (ManyChat)": _br(r["confirmadas"]),
+        "Confere": f"{r['confere']:.0f}%" if r["enviadas"] else "—",
+        # Nas duas primeiras o botão é link: a pessoa sai do WhatsApp e o
+        # ManyChat não vê o clique. Zero ali seria mentira, então nem mostra.
+        "Cliques": _br(r["cliques"]) if r["mede_clique"] else "não dá pra medir",
+        "Bloquearam": _br(r["bloqueios"]),
+    } for _, r in funil.iterrows()])
+    st.dataframe(checagem, use_container_width=True, hide_index=True)
 
     # ── Série por dia ────────────────────────────────────────────────────────
     if not por_dia.empty and por_dia["aula_data"].nunique() > 1:
