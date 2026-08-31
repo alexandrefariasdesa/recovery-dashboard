@@ -48,6 +48,50 @@ function pick(g: (p: string) => unknown, ...paths: string[]): string | null {
 
 const onlyDigits = (s: string | null) => (s ?? "").replace(/\D/g, "");
 
+// ── UTM: de onde a venda veio ────────────────────────────────────────────────
+// A pessoa que compra depois do fluxo de boas-vindas do Instagram não deixa
+// telefone no fluxo, então não há identidade para casar com `manychat_eventos`.
+// O que sobra é a origem do clique, e a Payt carrega isso no payload. Não temos
+// a forma exata documentada, então varremos os lugares plausíveis e guardamos
+// TUDO que parecer UTM — inclusive chaves que ainda não conhecemos.
+const UTM_KEYS = new Set([
+  "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
+  "src", "sck", "source", "origem",
+]);
+
+function colherUtm(body: Record<string, unknown>): Record<string, string> | null {
+  const out: Record<string, string> = {};
+
+  const absorve = (obj: unknown, prefixo = "") => {
+    if (!obj || typeof obj !== "object") return;
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      const chave = k.toLowerCase();
+      if (typeof v === "string" || typeof v === "number") {
+        const valor = String(v).trim();
+        if (!valor) continue;
+        if (UTM_KEYS.has(chave) || chave.startsWith("utm")) {
+          // A primeira ocorrência vence: o nível mais raso do payload é o mais
+          // confiável quando a mesma chave aparece em dois lugares.
+          out[prefixo + chave] ??= valor;
+        }
+      }
+    }
+  };
+
+  absorve(body);
+  for (const caminho of ["transaction", "tracking", "utms", "utm", "data", "checkout", "order"]) {
+    const filho = (body as Record<string, unknown>)[caminho];
+    absorve(filho);
+    if (filho && typeof filho === "object") {
+      for (const neto of ["tracking", "utms", "utm"]) {
+        absorve((filho as Record<string, unknown>)[neto]);
+      }
+    }
+  }
+
+  return Object.keys(out).length ? out : null;
+}
+
 // Valor pode vir em reais (float) ou centavos (int). Heurística: inteiro >= 1000
 // sem casa decimal provavelmente é centavos. (Fallback; a Payt usa centavos.)
 function toReais(raw: string | null): number | null {
@@ -161,11 +205,17 @@ Deno.serve(async (req) => {
       : vendaParam === "front" ? false
       : ((pick(g, "type", "transaction.type") ?? "").toLowerCase() === "upsell"
          || !!pick(g, "transaction.upsell_from", "upsell_from"));
+    // Origem da venda. `utm` é a chave de atribuição de fluxo (ver migration
+    // 0020); `raw` guarda o payload inteiro para que um parâmetro com nome
+    // inesperado possa ser recuperado por backfill, sem novo deploy.
+    const utm = colherUtm(body);
     const compraRow: Record<string, unknown> = {
       compra_em: isNaN(compraEm.getTime()) ? new Date().toISOString() : compraEm.toISOString(),
       nome, email, telefone, valor, produto, transaction_id: transactionId,
       tipo: ehUpsell ? "upsell" : "front",
       upsell_de: ehUpsell ? upsellDe : null,
+      utm,
+      raw: body,
     };
     // Upsert por transaction_id: reenvio da Payt não duplica a compra (o que
     // inflaria a conversão). Sem transaction_id, insere direto.
@@ -173,7 +223,7 @@ Deno.serve(async (req) => {
       ? await admin.from("compras").upsert(compraRow, { onConflict: "transaction_id", ignoreDuplicates: true })
       : await admin.from("compras").insert(compraRow);
     if (error) { console.error("payt-webhook compras:", error.message); return json({ error: error.message }, 500); }
-    return json({ ok: true, stored: true, destino: "compras", tipo: compraRow.tipo, telefone, valor });
+    return json({ ok: true, stored: true, destino: "compras", tipo: compraRow.tipo, telefone, valor, utm });
   }
 
   // ── EVENTO DE RECUPERAÇÃO → tabela `recovery_events` ──────────────────────

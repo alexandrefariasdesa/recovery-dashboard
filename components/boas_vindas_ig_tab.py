@@ -98,38 +98,78 @@ def render_boas_vindas_ig(data: dict) -> None:
 
     # ── Compra ──────────────────────────────────────────────────────────────
     st.subheader("Quantas compraram")
-    identificaveis = data["identificaveis"]
-    compraram = data["compraram"]
+    st.caption(
+        "O fluxo é do Instagram e não pede contato, então não dá para casar a "
+        "pessoa com a compra. A chave é a **origem**: a Payt manda o UTM do link "
+        "no webhook e ele fica em `compras.utm`. Uma venda com o UTM deste fluxo "
+        "é uma venda deste fluxo, sem precisar saber quem é."
+    )
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Pessoas no fluxo", _br(recebeu))
-    c2.metric("Com telefone (atribuível)", _br(identificaveis),
-              _pct(identificaveis, recebeu))
-    c3.metric("Compraram (atribuídas)", _br(compraram))
+    utms = data.get("utms")
+    com_utm = data.get("compras_com_utm", 0)
+    no_periodo = data.get("compras_periodo", 0)
 
-    if identificaveis < max(1, recebeu * 0.01):
-        st.warning(
-            "**Esta pergunta ainda não tem resposta — e o motivo não é falta de "
-            "venda.** O fluxo é do Instagram e não pede contato: os eventos "
-            "chegam só com `subscriber_id`, enquanto `compras` identifica a "
-            f"pessoa por telefone/e-mail. No período, {_br(identificaveis)} de "
-            f"{_br(recebeu)} pessoas deixaram telefone em algum evento, então o "
-            "teto do que dá para atribuir é esse — não o número de compras.\n\n"
-            "Para o número existir, o fluxo precisa carregar identidade até a "
-            "compra. Dois caminhos, do mais barato ao mais completo:\n\n"
-            "1. **Levar o `subscriber_id` até o checkout** — o botão de oferta "
-            "sai com o id na URL (`?src=ig_bv_{{subscriber_id}}`) e o webhook de "
-            "compra guarda esse campo. Liga a venda sem pedir nada à pessoa.\n"
-            "2. **Pedir WhatsApp dentro do fluxo** — uma etapa a mais, mas passa "
-            "a casar com tudo que já existe no painel (recuperação, grupo, aula)."
+    if utms is None or utms.empty:
+        st.info(
+            f"**Nenhuma das {_br(no_periodo)} compras do período tem UTM "
+            "gravado ainda.** A captura começa a valer no deploy do webhook "
+            "`payt-webhook` (migration 0020 já aplicada) — daí em diante toda "
+            "compra aprovada chega com a origem, e este bloco passa a responder "
+            "sozinho. Vendas anteriores só entram por backfill a partir da Payt."
         )
     else:
-        receita = "R$ " + (f"{float(data['receita']):,.2f}"
-                           .replace(",", "X").replace(".", ",").replace("X", "."))
+        rotulos = [
+            f"{r.utm_source} · {r.utm_campaign} · {r.utm_content}"
+            for r in utms.itertuples()
+        ]
+        utms = utms.assign(Origem=rotulos)
+        # Palpite inicial: o que parece boas-vindas/ManyChat já vem marcado, mas
+        # quem decide é você — o slug do link é escolhido no ManyChat, não aqui.
+        padrao = [
+            rot for rot in rotulos
+            if any(t in rot.lower() for t in ("boas", "bv", "welcome", "manychat", "seguidor"))
+        ]
+        escolhidas = st.multiselect(
+            "Quais origens são deste fluxo?", rotulos, default=padrao,
+            key="bv_ig_utms",
+        )
+        sel = utms[utms["Origem"].isin(escolhidas)]
+        compras_fluxo = int(sel["compras"].sum()) if not sel.empty else 0
+        receita_fluxo = float(sel["receita"].sum()) if not sel.empty else 0.0
+        valor = "R$ " + (f"{receita_fluxo:,.2f}"
+                         .replace(",", "X").replace(".", ",").replace("X", "."))
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Compras deste fluxo", _br(compras_fluxo))
+        c2.metric("Receita do fluxo", valor)
+        c3.metric("Compras por pessoa que engajou",
+                  f"{(compras_fluxo / engajou * 100):.2f}%" if engajou else "—")
+
+        st.dataframe(
+            utms[["Origem", "compras", "receita"]]
+            .rename(columns={"compras": "Compras", "receita": "Receita"}),
+            use_container_width=True, hide_index=True,
+        )
         st.caption(
-            f"Atribuição pela ponte de telefone: {_br(compraram)} de "
-            f"{_br(identificaveis)} pessoas identificáveis compraram "
-            f"({_pct(compraram, identificaveis)}) — {receita} em vendas."
+            f"{_br(com_utm)} de {_br(no_periodo)} compras do período têm UTM "
+            "gravado. As demais são anteriores à captura — não são vendas sem "
+            "origem, são vendas de antes da medição."
+        )
+
+    # Segunda via: a ponte por telefone, que acende se o fluxo passar a pedir
+    # contato. Fica recolhida porque hoje é quase sempre zero.
+    identificaveis = data["identificaveis"]
+    compraram = data["compraram"]
+    with st.expander("Segunda via: atribuição por telefone"):
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Pessoas no fluxo", _br(recebeu))
+        c2.metric("Com telefone", _br(identificaveis), _pct(identificaveis, recebeu))
+        c3.metric("Compraram", _br(compraram))
+        st.caption(
+            "Só existe para quem deixou telefone em algum evento do fluxo. Como "
+            "a automação do Instagram não pede contato, esse teto é quase zero "
+            "hoje — e ficaria zero também se ninguém tivesse comprado, que é "
+            "por que este não é o número que responde a pergunta."
         )
 
     # ── Outros fluxos de boas-vindas ────────────────────────────────────────

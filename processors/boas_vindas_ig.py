@@ -13,15 +13,23 @@ Por que uma página só pra esse fluxo, se "Etapas do fluxo" já lista todos:
 lá o fluxo é uma linha numa tabela com os outros quatro. Aqui cabe o ritmo
 diário, a taxa etapa a etapa e — principalmente — a resposta sobre COMPRA.
 
-**Sobre a compra: o fluxo é do Instagram e não captura telefone.** Os eventos
+**Sobre a compra: a chave é o UTM, não a pessoa.** O fluxo é do Instagram e não
+captura telefone. Os eventos
 chegam com `subscriber_id` do Instagram e `telefone` vazio; `compras` identifica
 a pessoa por telefone/e-mail. Não existe hoje chave que ligue os dois lados — na
 varredura de 30/08/2026, de 93.606 pessoas do fluxo apenas 1 tinha telefone em
 qualquer evento, e a interseção com `manychat_cliques` (onde mora o clique que
-vira venda) era zero. A atribuição é calculada mesmo assim, pela ponte de
-telefone, para acender sozinha no dia em que o fluxo passar a capturar contato —
-e o número honesto de hoje (perto de zero atribuível) fica à vista em vez de
-virar um zero silencioso que parece "ninguém comprou".
+vira venda) era zero.
+
+A saída é atribuir pela ORIGEM em vez da pessoa: a Payt manda os parâmetros de
+UTM do link no webhook, e desde a migration 0020 eles ficam em `compras.utm`.
+Uma venda com o UTM do fluxo é uma venda do fluxo, sem precisar saber quem é.
+Como o UTM só passa a ser gravado a partir do deploy do webhook, a página mostra
+a distribuição real dos valores observados e deixa você marcar quais pertencem a
+este fluxo — em vez de embutir um palpite de slug no código.
+
+A ponte por telefone continua calculada como segunda via: ela acende sozinha se
+algum dia o fluxo passar a pedir contato.
 """
 import pandas as pd
 import streamlit as st
@@ -152,8 +160,48 @@ def build_boas_vindas_ig(start_date, end_date) -> dict:
         outros["pessoas"] = outros["pessoas"].astype(int)
         outros["Fluxo"] = outros["fluxo"].map(OUTROS_SLUGS).fillna(outros["fluxo"])
 
+    # ── Compra por UTM: a atribuição que não depende de identidade ─────────
+    # Gravado a partir da migration 0020 + deploy do payt-webhook. Antes disso a
+    # coluna é nula para todo mundo, e a página diz isso em vez de mostrar zero.
+    utms = _read("""
+        select coalesce(utm ->> 'utm_source', '(sem source)')     as utm_source,
+               coalesce(utm ->> 'utm_campaign', '(sem campaign)') as utm_campaign,
+               coalesce(utm ->> 'utm_content', '(sem content)')   as utm_content,
+               count(*)                                          as compras,
+               coalesce(sum(valor), 0)                           as receita
+        from public.compras
+        where utm is not null
+          and (compra_em at time zone 'America/Sao_Paulo')::date
+              between '{ini}' and '{fim}'
+        group by 1, 2, 3
+        order by compras desc
+    """.format(**per))
+    if not utms.empty:
+        utms["compras"] = utms["compras"].astype(int)
+        utms["receita"] = utms["receita"].astype(float)
+
+    com_utm = _read("""
+        select count(*) as n
+        from public.compras
+        where utm is not null
+          and (compra_em at time zone 'America/Sao_Paulo')::date
+              between '{ini}' and '{fim}'
+    """.format(**per))
+    total_com_utm = int(com_utm.iloc[0]["n"]) if not com_utm.empty else 0
+
+    total_compras = _read("""
+        select count(*) as n
+        from public.compras
+        where (compra_em at time zone 'America/Sao_Paulo')::date
+              between '{ini}' and '{fim}'
+    """.format(**per))
+    total_compras = int(total_compras.iloc[0]["n"]) if not total_compras.empty else 0
+
     return {
         "funil": funil,
+        "utms": utms,
+        "compras_com_utm": total_com_utm,
+        "compras_periodo": total_compras,
         "recebeu": recebeu,
         "entrou": entrou,
         "engajou": engajou,
