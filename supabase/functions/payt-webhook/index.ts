@@ -226,6 +226,19 @@ Deno.serve(async (req) => {
       ? await admin.from("compras").upsert(compraRow, { onConflict: "transaction_id", ignoreDuplicates: true })
       : await admin.from("compras").insert(compraRow);
     if (error) { console.error("payt-webhook compras:", error.message); return json({ error: error.message }, 500); }
+
+    // A MESMA compra chega em dois lugares: aqui e no Make, que grava a linha
+    // direto no Postgres. Quem inserir primeiro vence, e o upsert acima é
+    // `ignoreDuplicates` — então, quando o Make ganha a corrida, a linha fica
+    // sem origem e a atribuição do fluxo se perde. Este update preenche só o que
+    // falta (origem e payload), sem tocar em mais nada da linha existente.
+    if (transactionId && utm) {
+      const { error: erroUtm } = await admin.from("compras")
+        .update({ utm, raw: body })
+        .eq("transaction_id", transactionId)
+        .is("utm", null);
+      if (erroUtm) console.error("payt-webhook utm backfill:", erroUtm.message);
+    }
     return json({ ok: true, stored: true, destino: "compras", tipo: compraRow.tipo, telefone, valor, utm });
   }
 
