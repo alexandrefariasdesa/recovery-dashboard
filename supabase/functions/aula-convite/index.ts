@@ -7,8 +7,8 @@
 //                               dia em `convites_aula` (regra dos 7 dias, dedupe
 //                               por telefone_core, cutoff/trava na config).
 //   ?fase=disparar   (09h00) -> pra cada linha status='selecionada': cria/acha o
-//                               subscriber no ManyChat, grava o custom field
-//                               `link_sala` (Applive pré-preenchido) e dispara o
+//                               subscriber no ManyChat, grava a copy da etapa
+//                               nos campos p1/p2 e dispara o
 //                               fluxo do "é hoje" (sendFlow). Marca 'enviada' só
 //                               com OK e registra a etapa `e_hoje` em envios.
 //   ?fase=etapa&etapa=X       -> dispara UMA das outras mensagens do dia pra quem
@@ -39,7 +39,6 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SHARED_TOKEN = Deno.env.get("CONVITE_TOKEN") ?? "";
 const MC_TOKEN = Deno.env.get("MC_TOKEN") ?? "";
 const MC_FLOW_NS = Deno.env.get("MC_FLOW_NS") ?? "";
-const MC_LINK_FIELD = Deno.env.get("MC_LINK_FIELD") ?? "link_sala";
 
 // Campos que formam o corpo de TODO template aprovado da conta.
 const F_P1 = 13923586;
@@ -48,7 +47,6 @@ const F_P2 = 13923587;
 // ManyChat (findBySystemField?phone= devolve [] mesmo com o contato lá dentro).
 const F_WHATSAPP = 13936072;
 
-const LINK_BASE = "https://luizavitoria.applive.com.br/mulher-inesquecivel-v2/lp";
 const MAX_POR_CHAMADA = 80;   // por invocação; o cron invoca em sequência até drenar
 const MAX_TENTATIVAS = 4;     // depois disso a linha fica em 'erro' e para de tentar
 // A função é morta pelo relógio da plataforma, e ser morta no meio de uma
@@ -185,29 +183,14 @@ async function etapaConfig(
 // TEMPLATE — ou seja, mesmo com a janela de 24h do WhatsApp fechada.
 // `setCustomFields` (plural) grava os campos de uma vez. Vale a troca: cada
 // chamada à API do ManyChat custa ~1s, e é o relógio que limita quantas pessoas
-// cabem numa invocação. Com `linkFieldId` o link_sala entra no mesmo pacote.
-async function gravarCopy(
-  cfg: EtapaCfg, sid: string, link: string | null, linkFieldId?: number | null,
-) {
-  const troca = (t: string | null) => (t ?? "").replaceAll("{link}", link ?? "");
+// cabem numa invocação.
+async function gravarCopy(cfg: EtapaCfg, sid: string) {
   const fields: Array<{ field_id: number; field_value: string }> = [];
-  if (cfg.texto_p1 != null) fields.push({ field_id: F_P1, field_value: troca(cfg.texto_p1) });
-  if (cfg.texto_p2 != null) fields.push({ field_id: F_P2, field_value: troca(cfg.texto_p2) });
-  if (linkFieldId && link) fields.push({ field_id: linkFieldId, field_value: link });
+  if (cfg.texto_p1 != null) fields.push({ field_id: F_P1, field_value: cfg.texto_p1 });
+  if (cfg.texto_p2 != null) fields.push({ field_id: F_P2, field_value: cfg.texto_p2 });
   if (!fields.length) return;
   const r = await mc("POST", "/fb/subscriber/setCustomFields", { subscriber_id: sid, fields });
   if (!r.ok) throw new Error(`setCustomFields(${r.http}): ${JSON.stringify(r.data).slice(0, 250)}`);
-}
-
-// Id do campo do link, resolvido UMA vez por invocação (não por pessoa). Sem
-// ele o link vai numa chamada separada, por nome — funciona igual, só custa
-// mais um round-trip por pessoa.
-async function linkFieldId(): Promise<number | null> {
-  const r = await mc("GET", "/fb/page/getCustomFields");
-  if (!r.ok) return null;
-  const campos = (r.data?.data as Array<Record<string, unknown>> | undefined) ?? [];
-  const achado = campos.find((c) => c.name === MC_LINK_FIELD);
-  return achado?.id ? Number(achado.id) : null;
 }
 
 // 1 linha por (convidada, etapa, dia). 'enviada' nunca repete; 'erro' volta na
@@ -287,7 +270,7 @@ Deno.serve(async (req) => {
       if (Date.now() - t0 > DEADLINE_MS) { paradas++; continue; }
       const tentativas = (linha.tentativas ?? 0) + 1;
       try {
-        await gravarCopy(cfg, linha.mc_subscriber_id, linha.link_sala);
+        await gravarCopy(cfg, linha.mc_subscriber_id);
         const envio = await mc("POST", "/fb/sending/sendFlow", {
           subscriber_id: linha.mc_subscriber_id, flow_ns: cfg.flow_ns,
         });
@@ -336,7 +319,6 @@ Deno.serve(async (req) => {
   const aulaData = hojeBrasilia();
   let enviadas = 0, falhas = 0, paradas = 0;
   const t0 = Date.now();
-  const fLink = await linkFieldId();   // uma vez por invocação, não por pessoa
 
   for (const c of fila ?? []) {
     if (Date.now() - t0 > DEADLINE_MS) { paradas++; continue; }
@@ -344,30 +326,12 @@ Deno.serve(async (req) => {
     const upd: Record<string, unknown> = { tentativas: (c.tentativas ?? 0) + 1 };
     try {
       if (!wa) throw new Error("telefone inválido pra WhatsApp");
-      const link =
-        `${LINK_BASE}?nome=${encodeURIComponent(c.nome ?? "")}` +
-        `&email=${encodeURIComponent(c.email ?? "")}` +
-        `&telefone=${encodeURIComponent(wa)}`;
-
       const sid = await subscriberId(wa, c.nome ?? "");
 
-      if (fLink) {
-        // link entra junto com a copy, numa chamada só
-        if (cfgHoje) {
-          await gravarCopy(cfgHoje, sid, link, fLink);
-        } else {
-          const campo = await mc("POST", "/fb/subscriber/setCustomFields", {
-            subscriber_id: sid, fields: [{ field_id: fLink, field_value: link }],
-          });
-          if (!campo.ok) throw new Error(`setCustomFields(${campo.http}): ${JSON.stringify(campo.data).slice(0, 300)}`);
-        }
-      } else {
-        const campo = await mc("POST", "/fb/subscriber/setCustomFieldByName", {
-          subscriber_id: sid, field_name: MC_LINK_FIELD, field_value: link,
-        });
-        if (!campo.ok) throw new Error(`setCustomField(${campo.http}): ${JSON.stringify(campo.data).slice(0, 300)}`);
-        if (cfgHoje) await gravarCopy(cfgHoje, sid, link);
-      }
+      // O link da sala saiu daqui em 01/09: os botões dos fluxos `ao_vivo` e
+      // `comecamos` passaram a apontar direto pra URL da sala, chumbada. Não há
+      // mais campo de link pra gravar — só a copy.
+      if (cfgHoje) await gravarCopy(cfgHoje, sid);
 
       const envio = await mc("POST", "/fb/sending/sendFlow", {
         subscriber_id: sid, flow_ns: flowHoje,
@@ -375,7 +339,7 @@ Deno.serve(async (req) => {
       if (!envio.ok) throw new Error(`sendFlow(${envio.http}): ${JSON.stringify(envio.data).slice(0, 300)}`);
 
       Object.assign(upd, {
-        status: "enviada", erro: null, mc_subscriber_id: sid, link_sala: link,
+        status: "enviada", erro: null, mc_subscriber_id: sid,
         aula_data: aulaData, enviada_em: new Date().toISOString(),
       });
       await registrarEnvio(admin, c.id, "e_hoje", aulaData, (c.tentativas ?? 0) + 1, null);
