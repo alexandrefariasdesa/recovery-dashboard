@@ -35,6 +35,9 @@ const VALID_TIPOS = new Set([
   // tipos combinados (fluxos do ManyChat juntam pix + boleto)
   'pix_boleto_gerado',
   'pix_boleto_expirado',
+  // 2ª etapa da recuperação (24h depois)
+  'pix_boleto_expirado_2',
+  'carrinho_abandonado_2',
   // individuais (mantidos por flexibilidade)
   'pix_gerado',
   'pix_expirado',

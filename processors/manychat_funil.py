@@ -28,6 +28,8 @@ LABELS = {
     "pix_boleto_gerado": "PIX/Boleto Gerado",
     "pix_boleto_expirado": "PIX/Boleto Expirado",
     "carrinho_abandonado": "Carrinho Abandonado",
+    "pix_boleto_expirado_2": "PIX Expirado — 2ª etapa (24h)",
+    "carrinho_abandonado_2": "Carrinho — 2ª etapa (24h)",
     "boas_vindas": "Boas-vindas",
 }
 ALL_FLUXOS = list(LABELS.keys())
